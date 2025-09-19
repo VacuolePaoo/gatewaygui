@@ -13,10 +13,6 @@ export function supportedLanguages(): Language[] {
       label: '中文',
       value: 'zh',
     },
-    {
-      label: 'Español',
-      value: 'es',
-    },
   ]
 }
 
