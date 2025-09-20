@@ -3,6 +3,7 @@ trigger: always_on
 ---
 
 我的电脑是windows11，包管理器使用pnpm
+important: 如果有eslint格式错误，无需修复，eslint会自动修复
 每一次优化项目的时候，不能引入新的异常。
 要有写文档和改文档的好习惯
 不允许使用抑制标记和忽略标记。

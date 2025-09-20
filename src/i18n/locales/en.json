@@ -1,6 +1,45 @@
 {
   "home": {
-    "label": "Home"
+    "label": "Home",
+    "greeting": {
+      "morning": "Good morning",
+      "afternoon": "Good afternoon",
+      "evening": "Good evening"
+    },
+    "subtitle": "What would you like to do today?",
+    "send": {
+      "title": "Send Files",
+      "description": "Send files to other devices",
+      "details": "Share documents, photos, videos and other files with anyone. Just select your files and generate a shareable link."
+    },
+    "receive": {
+      "title": "Receive Files",
+      "description": "Receive files from other devices"
+    },
+    "mount": {
+      "title": "Directory Mount",
+      "description": "Mount directories for easy access"
+    }
+  },
+  "receive": {
+    "title": "Receive Files",
+    "subtitle": "Receive files shared by others through links, QR codes or device discovery",
+    "link": {
+      "title": "Receive via Link",
+      "description": "Enter the link you received to download the files",
+      "inputLabel": "Receive link",
+      "placeholder": "Paste your receive link here",
+      "button": "Receive Files"
+    },
+    "qr": {
+      "title": "Scan QR Code",
+      "description": "Ask the sender to show the QR code and scan it with your camera",
+      "placeholder": "QR Code"
+    },
+    "device": {
+      "title": "Device Discovery",
+      "description": "Automatically discover nearby devices that are sharing files"
+    }
   },
   "languages": {
     "label": "Languages"

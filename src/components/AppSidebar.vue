@@ -12,6 +12,11 @@ const sidebarRoutes = [
     icon: 'ph:house-duotone',
     path: '/home',
   },
+  {
+    name: 'receive.label',
+    icon: 'ph:paper-plane-right-fill',
+    path: '/receive',
+  },
 ]
 </script>
 

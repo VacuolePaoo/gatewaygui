@@ -35,11 +35,11 @@ function handleLanguageSelect(newLocale: string) {
 </script>
 
 <template>
-  <div class="container mx-auto">
-    <div class="space-y-0.5 p-10">
-      <h2 class="text-2xl font-bold tracking-tight">
+  <div class="container mx-auto py-8 max-w-6xl">
+    <div class="mb-8">
+      <h1 class="text-3xl font-bold">
         {{ t('settings.label') }}
-      </h2>
+      </h1>
       <p class="text-muted-foreground">
         {{ t('settings.description') }}
       </p>

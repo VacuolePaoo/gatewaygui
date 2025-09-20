@@ -1,6 +1,45 @@
 {
   "home": {
-    "label": "首页"
+    "label": "首页",
+    "greeting": {
+      "morning": "早上好",
+      "afternoon": "下午好",
+      "evening": "晚上好"
+    },
+    "subtitle": "今天你想做什么？",
+    "send": {
+      "title": "发送文件",
+      "description": "向其他设备发送文件",
+      "details": "与任何人共享文档、照片、视频和其他文件。只需选择您的文件并生成可共享的链接。"
+    },
+    "receive": {
+      "title": "接收文件",
+      "description": "从其他设备接收文件"
+    },
+    "mount": {
+      "title": "目录挂载",
+      "description": "挂载目录以便快速访问"
+    }
+  },
+  "receive": {
+    "title": "接收文件",
+    "subtitle": "通过链接、二维码或设备发现功能接收他人共享的文件",
+    "link": {
+      "title": "通过链接接收",
+      "description": "输入您收到的链接以下载文件",
+      "inputLabel": "接收链接",
+      "placeholder": "在此处粘贴您的接收链接",
+      "button": "接收文件"
+    },
+    "qr": {
+      "title": "扫描二维码",
+      "description": "让发送方显示二维码，然后用相机扫描",
+      "placeholder": "二维码"
+    },
+    "device": {
+      "title": "设备发现",
+      "description": "自动发现附近正在共享文件的设备"
+    }
   },
   "languages": {
     "label": "语言"

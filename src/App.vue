@@ -7,14 +7,18 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 
 <template>
   <ConfigProvider>
-    <AppTopbar />
-    <TooltipProvider>
-      <main class="flex">
-        <AppSidebar />
-        <section class="bg-background grow p-4">
-          <router-view />
-        </section>
-      </main>
-    </TooltipProvider>
+    <div class="flex flex-col h-screen">
+      <AppTopbar />
+      <TooltipProvider class="flex flex-1 overflow-hidden">
+        <main class="flex flex-1 overflow-hidden">
+          <AppSidebar />
+          <section class="bg-background grow flex flex-col overflow-hidden">
+            <div class="p-4 flex-1 overflow-auto">
+              <router-view />
+            </div>
+          </section>
+        </main>
+      </TooltipProvider>
+    </div>
   </ConfigProvider>
 </template>
