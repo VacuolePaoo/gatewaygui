@@ -1,20 +1,52 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { ref } from 'vue'
+import { Store } from '@tauri-apps/plugin-store'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 const { t } = useI18n()
 
-// 模拟已挂载的目录数据
-const mountedDirectories = ref<string[]>([
-  '/home/user/Documents',
-  '/home/user/Downloads',
-  '/home/user/Pictures',
-  '/mnt/shared/projects',
-])
+// 创建 Store 实例
+let store: Store
+
+// 挂载的目录数据
+const mountedDirectories = ref<string[]>([])
+
+// 从存储中加载挂载点
+async function loadMountPoints() {
+  try {
+    store = await Store.load('mount-directories.json')
+    const savedDirectories = await store.get('directories')
+    if (Array.isArray(savedDirectories)) {
+      mountedDirectories.value = savedDirectories
+    }
+    // 如果没有保存的数据，mountedDirectories 将保持为空数组
+  }
+  catch (error) {
+    console.error('加载挂载点时出错:', error)
+    // 出错时保持空数组
+    mountedDirectories.value = []
+  }
+}
+
+// 保存挂载点到存储
+async function saveMountPoints() {
+  try {
+    await store.set('directories', mountedDirectories.value)
+    await store.save()
+  }
+  catch (error) {
+    console.error('保存挂载点时出错:', error)
+  }
+}
+
+// 组件挂载时加载数据
+onMounted(() => {
+  loadMountPoints()
+})
 
 async function addMountPoint() {
   try {
@@ -27,6 +59,8 @@ async function addMountPoint() {
     // 如果用户选择了文件夹，则添加到目录列表
     if (selected && typeof selected === 'string') {
       mountedDirectories.value.push(selected)
+      // 保存更新后的列表
+      await saveMountPoints()
     }
 
     // 如果用户取消选择，selected 将为 null，不执行任何操作
@@ -50,6 +84,8 @@ async function editDirectory(directory: string) {
       const index = mountedDirectories.value.indexOf(directory)
       if (index !== -1) {
         mountedDirectories.value[index] = selected
+        // 保存更新后的列表
+        await saveMountPoints()
       }
     }
 
@@ -60,10 +96,12 @@ async function editDirectory(directory: string) {
   }
 }
 
-function removeDirectory(index: number) {
+async function removeDirectory(index: number) {
   // TODO: 实现删除目录功能
   console.warn('删除目录功能待实现，索引:', index)
   mountedDirectories.value.splice(index, 1)
+  // 保存更新后的列表
+  await saveMountPoints()
 }
 </script>
 
