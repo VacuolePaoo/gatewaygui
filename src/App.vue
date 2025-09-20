@@ -14,7 +14,11 @@ import { TooltipProvider } from '@/components/ui/tooltip'
           <AppSidebar />
           <section class="bg-background grow flex flex-col overflow-hidden">
             <div class="p-4 flex-1 overflow-auto">
-              <router-view />
+              <router-view v-slot="{ Component }">
+                <transition name="page" mode="out-in">
+                  <component :is="Component" />
+                </transition>
+              </router-view>
             </div>
           </section>
         </main>
@@ -22,3 +26,20 @@ import { TooltipProvider } from '@/components/ui/tooltip'
     </div>
   </ConfigProvider>
 </template>
+
+<style>
+.page-enter-active,
+.page-leave-active {
+  transition: all 0.3s ease-out;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+</style>

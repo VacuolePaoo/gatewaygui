@@ -10,7 +10,7 @@ const { t } = useI18n({ useScope: 'global' })
 </script>
 
 <template>
-  <div class="container mx-auto py-8 max-w-6xl">
+  <div class="container mx-auto py-4 max-w-6xl">
     <div class="mb-8">
       <h1 class="text-3xl font-bold">
         {{ t('receive.title') }}

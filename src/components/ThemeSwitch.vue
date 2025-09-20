@@ -29,12 +29,15 @@ function handleThemeChange(theme: 'light' | 'dark' | 'auto') {
     <DropdownMenuContent align="end">
       <DropdownMenuItem @click="handleThemeChange('light')">
         {{ t('settings.theme.light') }}
+        <Icon icon="ph:sun-duotone" class="ml-auto h-4 w-4" />
       </DropdownMenuItem>
       <DropdownMenuItem @click="handleThemeChange('dark')">
         {{ t('settings.theme.dark') }}
+        <Icon icon="ph:moon-stars-duotone" class="ml-auto h-4 w-4" />
       </DropdownMenuItem>
       <DropdownMenuItem @click="handleThemeChange('auto')">
         {{ t('settings.theme.system') }}
+        <Icon icon="ph:circle-half-tilt" class="ml-auto h-4 w-4" />
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
