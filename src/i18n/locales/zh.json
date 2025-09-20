@@ -52,6 +52,15 @@
   "settings": {
     "label": "设置",
     "description": "在此管理应用程序的设置和偏好。",
+    "tabs": {
+      "core": "核心",
+      "security": "安全",
+      "appearance": "外观",
+      "about": "关于",
+      "coreDescription": "核心设置选项",
+      "securityDescription": "安全相关设置",
+      "aboutDescription": "关于本应用的信息"
+    },
     "theme": {
       "label": "主题",
       "description": "选择应用程序的主题。",

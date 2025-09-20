@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Language } from '@/lib/config'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
 
@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import {
   Tabs,
   TabsContent,
@@ -28,12 +27,7 @@ const { t, locale } = useI18n()
 const availableLanguages = ref<Language[]>(supportedLanguages())
 const settingsStore = useSettingsStore()
 
-watch(locale, (newLocale, oldLocale) => {
-  if (newLocale && newLocale !== oldLocale)
-    handleLanguageSelect(newLocale)
-}, { immediate: true })
-
-function handleLanguageSelect(newLocale: string) {
+function handleLanguageSelect(newLocale: any) {
   if (!newLocale || !availableLanguages.value.some(sl => sl.value === newLocale))
     return
   settingsStore.setSetting<string>('language', newLocale)
@@ -67,31 +61,23 @@ function handleLanguageSelect(newLocale: string) {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="core" class="mt-6">
-        <div class="space-y-8">
-          <div class="text-muted-foreground">
-            {{ t('settings.tabs.coreDescription') }}
-          </div>
-        </div>
+      <TabsContent value="core" class="mt-2">
+        <p>{{ t('settings.tabs.coreDescription') }}</p>
       </TabsContent>
 
-      <TabsContent value="security" class="mt-6">
-        <div class="space-y-8">
-          <div class="text-muted-foreground">
-            {{ t('settings.tabs.securityDescription') }}
-          </div>
-        </div>
+      <TabsContent value="security" class="mt-2">
+        <p>{{ t('settings.tabs.securityDescription') }}</p>
       </TabsContent>
 
-      <TabsContent value="appearance" class="mt-6">
-        <div class="space-y-8">
+      <TabsContent value="appearance" class="mt-2">
+        <div class="space-y-4">
           <div class="flex items-center space-x-2">
-            <Label class="text-lg font-medium" for="theme-switch">{{ t('settings.theme.label') }}</Label>
+            <Label class="text-md font-medium" for="theme-switch">{{ t('settings.theme.label') }}</Label>
             <ThemeSwitch />
           </div>
           <div class="flex items-center space-x-2">
-            <Label class="text-lg font-medium" for="language-select">{{ t('languages.label') }}</Label>
-            <Select id="language-select" v-model="locale">
+            <Label class="text-md font-medium" for="language-select">{{ t('languages.label') }}</Label>
+            <Select id="language-select" v-model="locale" @update:model-value="handleLanguageSelect">
               <SelectTrigger>
                 <SelectValue :placeholder="getLanguageLabel(locale)" />
               </SelectTrigger>
@@ -111,12 +97,8 @@ function handleLanguageSelect(newLocale: string) {
         </div>
       </TabsContent>
 
-      <TabsContent value="about" class="mt-6">
-        <div class="space-y-8">
-          <div class="text-muted-foreground">
-            {{ t('settings.tabs.aboutDescription') }}
-          </div>
-        </div>
+      <TabsContent value="about" class="mt-2">
+        <p>{{ t('settings.tabs.aboutDescription') }}</p>
       </TabsContent>
     </Tabs>
   </div>

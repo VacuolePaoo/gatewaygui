@@ -52,6 +52,15 @@
   "settings": {
     "label": "Settings",
     "description": "Manage the app settings and preferences here.",
+    "tabs": {
+      "core": "Core",
+      "security": "Security",
+      "appearance": "Appearance",
+      "about": "About",
+      "coreDescription": "Core settings options",
+      "securityDescription": "Security related settings",
+      "aboutDescription": "Information about this application"
+    },
     "theme": {
       "label": "Theme",
       "description": "Choose the theme for the app.",
