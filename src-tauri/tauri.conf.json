@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauriv2-vue-desktop-starter",
-  "version": "0.13.0",
-  "identifier": "com.github.tauriv2-vue-desktop-starter",
+  "productName": "Gateway",
+  "version": "0.0.1",
+  "identifier": "com.gateway.app",
   "build": {
     "beforeDevCommand": "pnpm vite:dev",
     "devUrl": "http://localhost:1420",
@@ -15,7 +15,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "tauriv2-vue-desktop-starter",
+        "title": "Gateway GUI",
         "label": "main",
         "width": 1000,
         "height": 800,
@@ -34,11 +34,14 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon_32x32.ico",
+      "icons/icon_128x128.ico",
+      "icons/icon_256x256.ico",
+      "icons/icon_16x16.ico",
+      "icons/icon_48x48.ico",
+      "icons/icon_64x64.ico",
+      "icons/icon_10x10.ico",
+      "icons/apple.icns"
     ]
   }
 }

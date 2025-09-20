@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "com.github.tauriv2-vue-desktop-starter",
+  "identifier": "com.gateway.app",
   "app": {
     "windows": [
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "tauriv2-vue-desktop-starter",
+        "title": "Gateway GUI",
         "center": true,
         "width": 1000,
         "height": 800,
@@ -14,6 +14,17 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
       }
+    ]
+  },
+  "bundle": {
+    "icon": [
+      "icons/icon_32x32.ico",
+      "icons/icon_128x128.ico",
+      "icons/icon_256x256.ico",
+      "icons/icon_16x16.ico",
+      "icons/icon_48x48.ico",
+      "icons/icon_64x64.ico",
+      "icons/icon_10x10.ico"
     ]
   }
 }

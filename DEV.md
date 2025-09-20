@@ -26,6 +26,7 @@
 
 - Tauri桌面应用配置
   - ICO和ICNS格式应用图标配置
+  - 跨平台配置同步（Windows/macOS/Linux）
 
 # TODO
 
