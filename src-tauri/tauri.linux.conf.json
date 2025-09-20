@@ -15,16 +15,5 @@
         "hiddenTitle": true
       }
     ]
-  },
-  "bundle": {
-    "icon": [
-      "icons/icon_32x32.ico",
-      "icons/icon_128x128.ico",
-      "icons/icon_256x256.ico",
-      "icons/icon_16x16.ico",
-      "icons/icon_48x48.ico",
-      "icons/icon_64x64.ico",
-      "icons/icon_10x10.ico"
-    ]
   }
 }

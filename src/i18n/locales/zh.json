@@ -7,6 +7,11 @@
       "evening": "晚上好"
     },
     "subtitle": "今天你想做什么？",
+    "service": {
+      "start": "启动服务",
+      "running": "运行中",
+      "gatewayRunning": "网关运行中"
+    },
     "send": {
       "title": "发送文件",
       "description": "向其他设备发送文件",

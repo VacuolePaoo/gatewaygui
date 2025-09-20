@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const { t } = useI18n({ useScope: 'global' })
@@ -19,17 +20,36 @@ const greeting = computed(() => {
     return t('home.greeting.evening')
   }
 })
+
+// 服务状态控制
+const serviceRunning = ref(false)
+
+function toggleService() {
+  serviceRunning.value = !serviceRunning.value
+}
 </script>
 
 <template>
   <div class="container mx-auto py-8 max-w-6xl">
-    <div class="mb-8">
-      <h1 class="text-3xl font-bold">
-        {{ greeting }}
-      </h1>
-      <p class="text-muted-foreground">
-        {{ t('home.subtitle') }}
-      </p>
+    <div class="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold">
+          {{ greeting }}
+        </h1>
+        <p class="text-muted-foreground">
+          {{ t('home.subtitle') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <Button
+          :disabled="serviceRunning"
+          :variant="serviceRunning ? 'secondary' : 'default'"
+          class="whitespace-nowrap"
+          @click="toggleService"
+        >
+          {{ serviceRunning ? t('home.service.gatewayRunning') : t('home.service.start') }}
+        </Button>
+      </div>
     </div>
     <!-- Bento Grid Layout -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 auto-rows-fr">

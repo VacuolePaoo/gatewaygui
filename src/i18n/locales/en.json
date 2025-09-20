@@ -7,6 +7,11 @@
       "evening": "Good evening"
     },
     "subtitle": "What would you like to do today?",
+    "service": {
+      "start": "Start Service",
+      "running": "Running",
+      "gatewayRunning": "Gateway Running"
+    },
     "send": {
       "title": "Send Files",
       "description": "Send files to other devices",
