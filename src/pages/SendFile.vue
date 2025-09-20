@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -15,6 +16,15 @@ const selectedFiles = ref<string[]>([])
 
 // 文本内容
 const textContent = ref('')
+
+// 拖拽状态
+const isDragOver = ref(false)
+
+// 拖拽监听器
+let unlistenDragEnter: (() => void) | null = null
+let unlistenDragOver: (() => void) | null = null
+let unlistenDragDrop: (() => void) | null = null
+let unlistenDragLeave: (() => void) | null = null
 
 // 选择文件
 async function selectFiles() {
@@ -85,6 +95,46 @@ function removeFile(index: number) {
 function clearAllFiles() {
   selectedFiles.value = []
 }
+
+// 初始化拖拽监听
+onMounted(async () => {
+  unlistenDragEnter = await listen('tauri://drag-enter', () => {
+    isDragOver.value = true
+  })
+
+  unlistenDragOver = await listen('tauri://drag-over', () => {
+    isDragOver.value = true
+  })
+
+  unlistenDragDrop = await listen('tauri://drag-drop', (event) => {
+    isDragOver.value = false
+    // 正确处理事件payload - 它是一个包含paths和position属性的对象
+    if (event.payload) {
+      const payload = event.payload as { paths: string[], position: { x: number, y: number } }
+      if (payload.paths && Array.isArray(payload.paths)) {
+        selectedFiles.value = [...selectedFiles.value, ...payload.paths]
+        // 去重
+        selectedFiles.value = [...new Set(selectedFiles.value)]
+      }
+    }
+  })
+
+  unlistenDragLeave = await listen('tauri://drag-leave', () => {
+    isDragOver.value = false
+  })
+})
+
+// 清理监听器
+onUnmounted(() => {
+  if (unlistenDragEnter)
+    unlistenDragEnter()
+  if (unlistenDragOver)
+    unlistenDragOver()
+  if (unlistenDragDrop)
+    unlistenDragDrop()
+  if (unlistenDragLeave)
+    unlistenDragLeave()
+})
 </script>
 
 <template>
@@ -148,41 +198,58 @@ function clearAllFiles() {
     </div>
 
     <!-- 已选择文件列表滚动区域 -->
-    <ScrollArea class="h-[calc(100vh-240px)] rounded-md border p-2">
-      <div v-if="selectedFiles.length === 0" class="text-muted-foreground text-center py-8">
-        {{ t('send.selected.empty') }}
-      </div>
-      <div v-else class="space-y-3">
+    <ScrollArea
+      class="h-[calc(100vh-240px)] rounded-md border p-2"
+    >
+      <div
+        :class="{ 'border-2 border-dashed border-primary rounded-lg': isDragOver }"
+        class="h-full w-full"
+      >
         <div
-          v-for="(file, index) in selectedFiles"
-          :key="index"
-          class="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+          v-if="selectedFiles.length === 0 && !isDragOver"
+          class="text-muted-foreground text-center py-8"
         >
-          <div class="flex items-center min-w-0 flex-1">
-            <Icon
-              v-if="file.startsWith('[TEXT]')"
-              icon="ph:article"
-              class="h-5 w-5 mr-3 flex-shrink-0 text-muted-foreground"
-            />
-            <Icon
-              v-else-if="file.includes('.') && !file.includes('\\') && !file.includes('/')"
-              icon="ph:file"
-              class="h-5 w-5 mr-3 flex-shrink-0 text-muted-foreground"
-            />
-            <Icon
-              v-else
-              icon="ph:folder"
-              class="h-5 w-5 mr-3 flex-shrink-0 text-muted-foreground"
-            />
-            <span class="truncate text-sm">{{ file.startsWith('[TEXT]') ? file.substring(7) : file }}</span>
-          </div>
-          <button
-            class="ml-2 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground"
-            :aria-label="t('send.selected.remove')"
-            @click="removeFile(index)"
+          {{ t('send.selected.empty') }}
+        </div>
+        <div
+          v-else-if="isDragOver"
+          class="text-primary text-center py-8 flex flex-col items-center justify-center"
+        >
+          <Icon icon="ph:upload-duotone" class="h-12 w-12 mb-2" />
+          <span class="text-lg">{{ t('send.drag.hover') }}</span>
+        </div>
+        <div v-else class="space-y-3">
+          <div
+            v-for="(file, index) in selectedFiles"
+            :key="index"
+            class="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
           >
-            <Icon icon="ph:x" class="h-4 w-4" />
-          </button>
+            <div class="flex items-center min-w-0 flex-1">
+              <Icon
+                v-if="file.startsWith('[TEXT]')"
+                icon="ph:article"
+                class="h-5 w-5 mr-3 flex-shrink-0 text-muted-foreground"
+              />
+              <Icon
+                v-else-if="file.includes('.') && !file.includes('\\') && !file.includes('/')"
+                icon="ph:file"
+                class="h-5 w-5 mr-3 flex-shrink-0 text-muted-foreground"
+              />
+              <Icon
+                v-else
+                icon="ph:folder"
+                class="h-5 w-5 mr-3 flex-shrink-0 text-muted-foreground"
+              />
+              <span class="truncate text-sm">{{ file.startsWith('[TEXT]') ? file.substring(7) : file }}</span>
+            </div>
+            <button
+              class="ml-2 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground"
+              :aria-label="t('send.selected.remove')"
+              @click="removeFile(index)"
+            >
+              <Icon icon="ph:x" class="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
     </ScrollArea>

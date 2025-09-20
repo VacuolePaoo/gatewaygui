@@ -1,4 +1,7 @@
 {
+  "app": {
+    "name": "FastSend"
+  },
   "home": {
     "label": "首页",
     "greeting": {
@@ -52,7 +55,11 @@
     },
     "next": "下一步",
     "send": "发送",
-    "clearAll": "全部清除"
+    "clearAll": "全部清除",
+    "drag": {
+      "dropHere": "将文件拖拽到这里",
+      "hover": "松开以放置文件"
+    }
   },
   "receive": {
     "label": "接收文件",

@@ -1,4 +1,7 @@
 {
+  "app": {
+    "name": "FastSend"
+  },
   "home": {
     "label": "Home",
     "greeting": {
@@ -51,7 +54,12 @@
       "add": "Add Text"
     },
     "next": "Next",
-    "send": "Send"
+    "send": "Send",
+    "clearAll": "Clear All",
+    "drag": {
+      "dropHere": "Drop files here",
+      "hover": "Release to drop files"
+    }
   },
   "receive": {
     "title": "Receive Files",
