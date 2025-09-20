@@ -9,7 +9,6 @@
     "subtitle": "今天你想做什么？",
     "service": {
       "start": "启动服务",
-      "running": "运行中",
       "gatewayRunning": "网关运行中"
     },
     "send": {
@@ -27,23 +26,20 @@
     }
   },
   "receive": {
+    "label": "接收文件",
     "title": "接收文件",
-    "subtitle": "通过链接、二维码或设备发现功能接收他人共享的文件",
-    "link": {
-      "title": "通过链接接收",
-      "description": "输入您收到的链接以下载文件",
-      "inputLabel": "接收链接",
-      "placeholder": "在此处粘贴您的接收链接",
-      "button": "接收文件"
+    "subtitle": "等待其他设备向您发送文件",
+    "waiting": {
+      "title": "等待文件接收",
+      "description": "请确保您的设备与发送方处于同一网络"
     },
-    "qr": {
-      "title": "扫描二维码",
-      "description": "让发送方显示二维码，然后用相机扫描",
-      "placeholder": "二维码"
-    },
-    "device": {
-      "title": "设备发现",
-      "description": "自动发现附近正在共享文件的设备"
+    "host": {
+      "title": "本机信息",
+      "hostname": "主机名",
+      "ip": "IP地址",
+      "port": "端口",
+      "status": "状态",
+      "listening": "监听中"
     }
   },
   "languages": {

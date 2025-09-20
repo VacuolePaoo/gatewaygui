@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { Icon } from '@iconify/vue'
 import { useI18n } from 'vue-i18n'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 
 const { t } = useI18n({ useScope: 'global' })
+
+// 模拟本机信息数据
+const hostInfo = {
+  hostname: 'MyComputer-PC',
+  ip: '192.168.1.105',
+  port: '52001',
+  status: 'listening',
+}
 </script>
 
 <template>
   <div class="container mx-auto py-4 max-w-6xl">
-    <div class="mb-8">
+    <div class="mb-4">
       <h1 class="text-3xl font-bold">
         {{ t('receive.title') }}
       </h1>
@@ -20,79 +23,45 @@ const { t } = useI18n({ useScope: 'global' })
       </p>
     </div>
 
-    <Card class="mb-8">
-      <CardHeader>
-        <CardTitle class="text-2xl flex items-center gap-2">
-          <Icon icon="ph:link-simple-bold" class="h-6 w-6" />
-          {{ t('receive.link.title') }}
-        </CardTitle>
-        <CardDescription>
-          {{ t('receive.link.description') }}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="flex flex-col sm:flex-row gap-4">
-          <div class="flex-1">
-            <Label for="receive-link" class="sr-only">
-              {{ t('receive.link.inputLabel') }}
-            </Label>
-            <Input
-              id="receive-link"
-              type="text"
-              :placeholder="t('receive.link.placeholder')"
-              class="w-full"
-            />
-          </div>
-          <Button>
-            {{ t('receive.link.button') }}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div class="flex flex-col lg:flex-row gap-8">
+      <!-- 左侧：等待文件接收 (仅在lg及以上屏幕显示) -->
+      <div class="hidden lg:flex flex-col items-center justify-center flex-1">
+        <img src="@/assets/receive.svg" alt="等待文件接收" class="w-64 h-64">
+        <h2 class="text-2xl font-bold mb-2">
+          {{ t('receive.waiting.title') }}
+        </h2>
+        <p class="text-muted-foreground text-center">
+          {{ t('receive.waiting.description') }}
+        </p>
+      </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <Card class="cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group">
-        <div class="absolute right-4 top-4 opacity-10 group-hover:opacity-20 transition-opacity">
-          <Icon
-            icon="ph:qrcode-fill"
-            class="h-24 w-24 text-primary transition-transform duration-300 group-hover:-rotate-12 group-hover:scale-110"
-          />
-        </div>
-        <CardHeader>
-          <CardTitle class="text-2xl">
-            {{ t('receive.qr.title') }}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CardDescription class="mb-4">
-            {{ t('receive.qr.description') }}
-          </CardDescription>
-          <div class="bg-white p-4 rounded-lg w-fit">
-            <div class="bg-gray-200 border-2 border-dashed rounded-xl w-32 h-32 flex items-center justify-center">
-              {{ t('receive.qr.placeholder') }}
-            </div>
+      <!-- 右侧：本机信息 -->
+      <div class="flex-1 mt-4">
+        <h2 class="text-2xl font-bold mb-8">
+          {{ t('receive.host.title') }}
+        </h2>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between p-3 bg-muted rounded-lg">
+            <span class="text-muted-foreground">{{ t('receive.host.hostname') }}</span>
+            <span class="font-medium">{{ hostInfo.hostname }}</span>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card class="cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group">
-        <div class="absolute right-4 top-4 opacity-10 group-hover:opacity-20 transition-opacity">
-          <Icon
-            icon="ph:desktop-fill"
-            class="h-24 w-24 text-primary transition-transform duration-300 group-hover:-rotate-12 group-hover:scale-110"
-          />
+          <div class="flex items-center justify-between p-3 bg-muted rounded-lg">
+            <span class="text-muted-foreground">{{ t('receive.host.ip') }}</span>
+            <span class="font-medium">{{ hostInfo.ip }}</span>
+          </div>
+
+          <div class="flex items-center justify-between p-3 bg-muted rounded-lg">
+            <span class="text-muted-foreground">{{ t('receive.host.port') }}</span>
+            <span class="font-medium">{{ hostInfo.port }}</span>
+          </div>
+
+          <div class="flex items-center justify-between p-3 bg-muted rounded-lg">
+            <span class="text-muted-foreground">{{ t('receive.host.status') }}</span>
+            <span class="font-medium text-green-600">{{ t('receive.host.listening') }}</span>
+          </div>
         </div>
-        <CardHeader>
-          <CardTitle class="text-2xl">
-            {{ t('receive.device.title') }}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CardDescription>
-            {{ t('receive.device.description') }}
-          </CardDescription>
-        </CardContent>
-      </Card>
+      </div>
     </div>
   </div>
 </template>

@@ -9,7 +9,6 @@
     "subtitle": "What would you like to do today?",
     "service": {
       "start": "Start Service",
-      "running": "Running",
       "gatewayRunning": "Gateway Running"
     },
     "send": {
@@ -18,6 +17,7 @@
       "details": "Share documents, photos, videos and other files with anyone. Just select your files and generate a shareable link."
     },
     "receive": {
+      "label": "Receive Files",
       "title": "Receive Files",
       "description": "Receive files from other devices"
     },
@@ -28,22 +28,18 @@
   },
   "receive": {
     "title": "Receive Files",
-    "subtitle": "Receive files shared by others through links, QR codes or device discovery",
-    "link": {
-      "title": "Receive via Link",
-      "description": "Enter the link you received to download the files",
-      "inputLabel": "Receive link",
-      "placeholder": "Paste your receive link here",
-      "button": "Receive Files"
+    "subtitle": "Waiting for other devices to send you files",
+    "waiting": {
+      "title": "Waiting for File Reception",
+      "description": "Please ensure your device is on the same network as the sender"
     },
-    "qr": {
-      "title": "Scan QR Code",
-      "description": "Ask the sender to show the QR code and scan it with your camera",
-      "placeholder": "QR Code"
-    },
-    "device": {
-      "title": "Device Discovery",
-      "description": "Automatically discover nearby devices that are sharing files"
+    "host": {
+      "title": "Host Information",
+      "hostname": "Hostname",
+      "ip": "IP Address",
+      "port": "Port",
+      "status": "Status",
+      "listening": "Listening"
     }
   },
   "languages": {
