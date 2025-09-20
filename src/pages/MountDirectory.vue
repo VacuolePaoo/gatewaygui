@@ -16,9 +16,24 @@ const mountedDirectories = ref<string[]>([
   '/mnt/shared/projects',
 ])
 
-function addMountPoint() {
-  // TODO: 实现添加挂载点功能
-  console.warn('添加挂载点功能待实现')
+async function addMountPoint() {
+  try {
+    // 打开文件夹选择对话框
+    const selected = await open({
+      directory: true,
+      multiple: false,
+    })
+
+    // 如果用户选择了文件夹，则添加到目录列表
+    if (selected && typeof selected === 'string') {
+      mountedDirectories.value.push(selected)
+    }
+
+    // 如果用户取消选择，selected 将为 null，不执行任何操作
+  }
+  catch (error) {
+    console.error('选择文件夹时出错:', error)
+  }
 }
 
 async function editDirectory(directory: string) {
