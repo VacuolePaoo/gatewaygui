@@ -38,6 +38,10 @@ function goToSend() {
 function goToReceive() {
   router.push('/receive')
 }
+
+function goToMount() {
+  router.push('/mount')
+}
 </script>
 
 <template>
@@ -108,7 +112,7 @@ function goToReceive() {
       </Card>
 
       <!-- 目录挂载卡片 -->
-      <Card class="flex flex-col cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group">
+      <Card class="flex flex-col cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group" @click="goToMount">
         <div class="absolute right-4 top-4 opacity-10 group-hover:opacity-20 transition-opacity">
           <Icon
             icon="ph:folder-fill"

@@ -25,6 +25,16 @@ const routes = [
         name: 'send',
         component: () => import('@/pages/SendFile.vue'),
       },
+      {
+        path: 'select-device',
+        name: 'select-device',
+        component: () => import('@/pages/SelectDevice.vue'),
+      },
+      {
+        path: 'mount',
+        name: 'mount',
+        component: () => import('@/pages/MountDirectory.vue'),
+      },
     ],
   },
 ]

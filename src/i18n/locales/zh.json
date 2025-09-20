@@ -26,9 +26,24 @@
       "description": "从其他设备接收文件"
     },
     "mount": {
+      "label": "目录挂载",
       "title": "目录挂载",
       "description": "挂载目录以便快速访问"
     }
+  },
+  "mount": {
+    "label": "挂载",
+    "addMountPoint": "添加挂载点",
+    "noMountedDirectories": "暂无挂载目录",
+    "settings": "设置",
+    "directorySettings": "目录设置",
+    "settingsDescription": "配置目录挂载选项",
+    "close": "关闭",
+    "edit": "编辑",
+    "remove": "移除",
+    "comingSoon": "即将推出",
+    "description": "挂载目录以便通过网关轻松访问它们",
+    "manageDirectories": "管理挂载目录"
   },
   "send": {
     "label": "发送文件",
@@ -60,6 +75,19 @@
       "dropHere": "将文件拖拽到这里",
       "hover": "松开以放置文件"
     }
+  },
+  "selectDevice": {
+    "title": "选择接收设备",
+    "description": "请选择要发送文件的目标设备",
+    "selectedFiles": "已选择的文件",
+    "selectedFilesDesc": "以下是你选择要发送的文件",
+    "noFiles": "没有选择任何文件",
+    "availableDevices": "可用设备",
+    "availableDevicesDesc": "选择一个在线设备来接收文件",
+    "online": "在线",
+    "offline": "离线",
+    "select": "选择",
+    "back": "返回"
   },
   "receive": {
     "label": "接收文件",

@@ -4977,6 +4977,7 @@ name = "tauriv2-vue-desktop-starter"
 version = "0.13.0"
 dependencies = [
  "log",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",

@@ -22,6 +22,11 @@ const sidebarRoutes = [
     icon: 'ph:paper-plane-duotone',
     path: '/send',
   },
+  {
+    name: 'mount.label',
+    icon: 'ph:folder-open-duotone',
+    path: '/mount',
+  },
 ]
 </script>
 

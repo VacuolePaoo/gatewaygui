@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 
 const { t } = useI18n()
+const router = useRouter()
 
 // 文件列表
 const selectedFiles = ref<string[]>([])
@@ -25,6 +28,56 @@ let unlistenDragEnter: (() => void) | null = null
 let unlistenDragOver: (() => void) | null = null
 let unlistenDragDrop: (() => void) | null = null
 let unlistenDragLeave: (() => void) | null = null
+
+// 初始化时从后端获取文件列表
+onMounted(async () => {
+  try {
+    const files = await invoke('get_selected_files') as string[]
+    if (files && files.length > 0) {
+      selectedFiles.value = files
+    }
+  }
+  catch (error) {
+    console.error('Error loading files from backend:', error)
+  }
+
+  unlistenDragEnter = await listen('tauri://drag-enter', () => {
+    isDragOver.value = true
+  })
+
+  unlistenDragOver = await listen('tauri://drag-over', () => {
+    isDragOver.value = true
+  })
+
+  unlistenDragDrop = await listen('tauri://drag-drop', (event) => {
+    isDragOver.value = false
+    // 正确处理事件payload - 它是一个包含paths和position属性的对象
+    if (event.payload) {
+      const payload = event.payload as { paths: string[], position: { x: number, y: number } }
+      if (payload.paths && Array.isArray(payload.paths)) {
+        selectedFiles.value = [...selectedFiles.value, ...payload.paths]
+        // 去重
+        selectedFiles.value = [...new Set(selectedFiles.value)]
+        // 同步到后端
+        saveFilesToBackend()
+      }
+    }
+  })
+
+  unlistenDragLeave = await listen('tauri://drag-leave', () => {
+    isDragOver.value = false
+  })
+})
+
+// 保存文件列表到后端
+async function saveFilesToBackend() {
+  try {
+    await invoke('set_selected_files', { files: selectedFiles.value })
+  }
+  catch (error) {
+    console.error('Error saving files to backend:', error)
+  }
+}
 
 // 选择文件
 async function selectFiles() {
@@ -44,6 +97,8 @@ async function selectFiles() {
       }
       // 去重
       selectedFiles.value = [...new Set(selectedFiles.value)]
+      // 同步到后端
+      saveFilesToBackend()
     }
   }
   catch (error) {
@@ -69,6 +124,8 @@ async function selectFolders() {
       }
       // 去重
       selectedFiles.value = [...new Set(selectedFiles.value)]
+      // 同步到后端
+      saveFilesToBackend()
     }
   }
   catch (error) {
@@ -83,46 +140,29 @@ function addText() {
     const textEntry = `[TEXT] ${textContent.value.trim()}`
     selectedFiles.value = [...selectedFiles.value, textEntry]
     textContent.value = ''
+    // 同步到后端
+    saveFilesToBackend()
   }
 }
 
 // 移除选中的文件/文件夹/文本
 function removeFile(index: number) {
   selectedFiles.value.splice(index, 1)
+  // 同步到后端
+  saveFilesToBackend()
 }
 
 // 清空所有选中的文件/文件夹/文本
 function clearAllFiles() {
   selectedFiles.value = []
+  // 同步到后端
+  saveFilesToBackend()
 }
 
-// 初始化拖拽监听
-onMounted(async () => {
-  unlistenDragEnter = await listen('tauri://drag-enter', () => {
-    isDragOver.value = true
-  })
-
-  unlistenDragOver = await listen('tauri://drag-over', () => {
-    isDragOver.value = true
-  })
-
-  unlistenDragDrop = await listen('tauri://drag-drop', (event) => {
-    isDragOver.value = false
-    // 正确处理事件payload - 它是一个包含paths和position属性的对象
-    if (event.payload) {
-      const payload = event.payload as { paths: string[], position: { x: number, y: number } }
-      if (payload.paths && Array.isArray(payload.paths)) {
-        selectedFiles.value = [...selectedFiles.value, ...payload.paths]
-        // 去重
-        selectedFiles.value = [...new Set(selectedFiles.value)]
-      }
-    }
-  })
-
-  unlistenDragLeave = await listen('tauri://drag-leave', () => {
-    isDragOver.value = false
-  })
-})
+// 导航到选择设备页面
+function goToSelectDevice() {
+  router.push({ name: 'select-device' })
+}
 
 // 清理监听器
 onUnmounted(() => {
@@ -139,18 +179,30 @@ onUnmounted(() => {
 
 <template>
   <div class="container mx-auto py-4 max-w-6xl relative">
-    <div class="mb-4">
-      <h1 class="text-3xl font-bold">
-        {{ t('send.title') }}
-      </h1>
-      <p class="text-muted-foreground">
-        {{ t('send.description') }}
-      </p>
+    <div class="mb-4 flex justify-between items-center">
+      <div>
+        <h1 class="text-3xl font-bold">
+          {{ t('send.title') }}
+        </h1>
+        <p class="text-muted-foreground">
+          {{ t('send.description') }}
+        </p>
+      </div>
+      <Button
+        :disabled="selectedFiles.length === 0"
+        @click="goToSelectDevice"
+      >
+        <Icon icon="ph:paper-plane-right" class="mr-2 h-5 w-5" />
+        {{ t('send.next') }}
+      </Button>
     </div>
 
     <!-- 操作按钮 -->
     <div class="flex flex-wrap gap-3 mb-2">
-      <Button @click="selectFiles">
+      <Button
+        variant="outline"
+        @click="selectFiles"
+      >
         <Icon icon="ph:file-plus" class="mr-2 h-4 w-4" />
         {{ t('send.select.files') }}
       </Button>
@@ -188,7 +240,8 @@ onUnmounted(() => {
       </Dialog>
       <div class="flex-grow" />
       <Button
-        variant="destructive"
+        class="text-red-500 hover:text-red-600"
+        variant="ghost"
         :disabled="selectedFiles.length === 0"
         @click="clearAllFiles"
       >
@@ -253,13 +306,5 @@ onUnmounted(() => {
         </div>
       </div>
     </ScrollArea>
-
-    <!-- 悬浮操作按钮 -->
-    <div class="fixed bottom-6 right-6">
-      <Button size="lg" :disabled="selectedFiles.length === 0" class="shadow-lg">
-        <Icon icon="ph:paper-plane-right" class="mr-2 h-5 w-5" />
-        {{ t('send.next') }}
-      </Button>
-    </div>
   </div>
 </template>

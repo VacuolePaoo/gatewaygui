@@ -1,4 +1,4 @@
-use plugins::logging;
+use plugins::file_manager;
 use tauri::Manager;
 use tauri_plugin_decorum::WebviewWindowExt;
 
@@ -8,7 +8,10 @@ pub mod plugins;
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
+        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+        .manage(file_manager::FileManagerState {
+            selected_files: std::sync::Mutex::new(Vec::new()),
+        });
 
     // CrabNebula DevTools prevents other logging plugins from working
     // https://docs.crabnebula.dev/devtools/troubleshoot/log-plugins/
@@ -20,14 +23,18 @@ pub fn run() {
 
     #[cfg(not(debug_assertions))]
     {
-        builder = builder.plugin(logging::tauri_plugin_logging());
+        builder = builder.plugin(plugins::logging::tauri_plugin_logging());
     }
     builder
         .plugin(tauri_plugin_decorum::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![
+            file_manager::set_selected_files,
+            file_manager::get_selected_files,
+            file_manager::clear_selected_files
+        ])
         .setup(|app| {
             // Create a custom titlebar for main window
             // On Windows this hides decoration and creates custom window controls

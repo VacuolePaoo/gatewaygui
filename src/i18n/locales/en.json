@@ -27,9 +27,24 @@
       "description": "Receive files from other devices"
     },
     "mount": {
+      "label": "Directory Mount",
       "title": "Directory Mount",
       "description": "Mount directories for easy access"
     }
+  },
+  "mount": {
+    "label": "Mount",
+    "addMountPoint": "Add Mount Point",
+    "noMountedDirectories": "No mounted directories yet",
+    "settings": "Settings",
+    "directorySettings": "Directory Settings",
+    "settingsDescription": "Configure directory mount options",
+    "close": "Close",
+    "edit": "Edit",
+    "remove": "Remove",
+    "comingSoon": "Coming Soon",
+    "description": "Mount directories to access them easily through the gateway",
+    "manageDirectories": "Manage Mounted Directories"
   },
   "send": {
     "title": "Send Files",
@@ -60,6 +75,19 @@
       "dropHere": "Drop files here",
       "hover": "Release to drop files"
     }
+  },
+  "selectDevice": {
+    "title": "Select Receiving Device",
+    "description": "Please select the target device to send files to",
+    "selectedFiles": "Selected Files",
+    "selectedFilesDesc": "The following files you have selected to send",
+    "noFiles": "No files selected",
+    "availableDevices": "Available Devices",
+    "availableDevicesDesc": "Select an online device to receive files",
+    "online": "Online",
+    "offline": "Offline",
+    "select": "Select",
+    "back": "Back"
   },
   "receive": {
     "title": "Receive Files",
