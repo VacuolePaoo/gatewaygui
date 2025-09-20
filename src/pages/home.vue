@@ -2,10 +2,12 @@
 import { Icon } from '@iconify/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const { t } = useI18n({ useScope: 'global' })
+const router = useRouter()
 
 // 根据当前时间返回问候语
 const greeting = computed(() => {
@@ -26,6 +28,15 @@ const serviceRunning = ref(false)
 
 function toggleService() {
   serviceRunning.value = !serviceRunning.value
+}
+
+// 导航函数
+function goToSend() {
+  router.push('/send')
+}
+
+function goToReceive() {
+  router.push('/receive')
 }
 </script>
 
@@ -54,7 +65,7 @@ function toggleService() {
     <!-- Bento Grid Layout -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 auto-rows-fr">
       <!-- 发送文件卡片 - 大卡片 -->
-      <Card class="flex flex-col md:row-span-2 cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group">
+      <Card class="flex flex-col md:row-span-2 cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group" @click="goToSend">
         <div class="absolute right-4 top-4 opacity-10 group-hover:opacity-20 transition-opacity">
           <Icon
             icon="ph:paper-plane-right-fill"
@@ -77,7 +88,7 @@ function toggleService() {
       </Card>
 
       <!-- 接收文件卡片 -->
-      <Card class="flex flex-col cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group">
+      <Card class="flex flex-col cursor-pointer hover:bg-accent transition-colors relative overflow-hidden group" @click="goToReceive">
         <div class="absolute right-4 top-4 opacity-10 group-hover:opacity-20 transition-opacity">
           <Icon
             icon="ph:download-fill"

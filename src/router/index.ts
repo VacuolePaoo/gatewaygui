@@ -20,6 +20,11 @@ const routes = [
         name: 'receive',
         component: () => import('@/pages/Receive.vue'),
       },
+      {
+        path: 'send',
+        name: 'send',
+        component: () => import('@/pages/SendFile.vue'),
+      },
     ],
   },
 ]

@@ -14,8 +14,13 @@ const sidebarRoutes = [
   },
   {
     name: 'receive.label',
-    icon: 'ph:paper-plane-right-duotone',
+    icon: 'ph:download-duotone',
     path: '/receive',
+  },
+  {
+    name: 'send.label',
+    icon: 'ph:paper-plane-duotone',
+    path: '/send',
   },
 ]
 </script>

@@ -12,9 +12,11 @@
       "gatewayRunning": "Gateway Running"
     },
     "send": {
+      "label": "Send Files",
       "title": "Send Files",
       "description": "Send files to other devices",
-      "details": "Share documents, photos, videos and other files with anyone. Just select your files and generate a shareable link."
+      "details": "Share documents, photos, videos and other files with anyone. Just select your files and generate a shareable link.",
+      "clearAll": "Clear All"
     },
     "receive": {
       "label": "Receive Files",
@@ -25,6 +27,31 @@
       "title": "Directory Mount",
       "description": "Mount directories for easy access"
     }
+  },
+  "send": {
+    "title": "Send Files",
+    "description": "Select files, folders or text to send",
+    "select": {
+      "files": "Select Files",
+      "folders": "Select Folders",
+      "text": "Enter Text"
+    },
+    "selected": {
+      "title": "Selected",
+      "description": "List of selected files and folders",
+      "empty": "No files, folders or text selected yet",
+      "remove": "Remove"
+    },
+    "selectFiles": "Select Files",
+    "selectFolders": "Select Folders",
+    "textDialog": {
+      "title": "Enter Text",
+      "description": "Enter the text content you want to send",
+      "placeholder": "Enter text here...",
+      "add": "Add Text"
+    },
+    "next": "Next",
+    "send": "Send"
   },
   "receive": {
     "title": "Receive Files",
