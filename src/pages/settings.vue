@@ -45,7 +45,7 @@ function handleLanguageSelect(newLocale: any) {
       </p>
     </div>
 
-    <Tabs default-value="appearance" class="w-full">
+    <Tabs default-value="core" class="w-full">
       <TabsList class="grid w-full grid-cols-4">
         <TabsTrigger value="core">
           {{ t('settings.tabs.core') }}

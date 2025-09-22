@@ -18,12 +18,10 @@
         "title": "Gateway GUI",
         "label": "main",
         "width": 1000,
+        "minWidth": 900,
         "height": 800,
-        "center": true,
-        "focus": true,
-        "decorations": false,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "minHeight": 550,
+        "focus": true 
       }
     ],
     "security": {
