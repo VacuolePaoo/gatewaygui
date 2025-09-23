@@ -3,6 +3,7 @@ use tauri::Manager;
 use tauri_plugin_decorum::WebviewWindowExt;
 
 pub mod plugins;
+pub mod gateway;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,7 +34,58 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             file_manager::set_selected_files,
             file_manager::get_selected_files,
-            file_manager::clear_selected_files
+            file_manager::clear_selected_files,
+            // Gateway API
+            gateway::tauri_api::start_gateway,
+            gateway::tauri_api::stop_gateway,
+            gateway::tauri_api::restart_gateway,
+            gateway::tauri_api::get_gateway_status,
+            
+            // Configuration API
+            gateway::tauri_api::get_gateway_config,
+            gateway::tauri_api::update_gateway_config,
+            gateway::tauri_api::validate_config,
+            gateway::tauri_api::reset_to_default_config,
+            
+            // Directory API
+            gateway::tauri_api::mount_directory,
+            gateway::tauri_api::unmount_directory,
+            gateway::tauri_api::get_mount_points,
+            gateway::tauri_api::list_directory,
+            gateway::tauri_api::create_file_transfer,
+            gateway::tauri_api::get_transfer_status,
+            gateway::tauri_api::cancel_transfer,
+            
+            // Network API
+            gateway::tauri_api::get_network_status,
+            gateway::tauri_api::start_p2p_discovery,
+            gateway::tauri_api::stop_p2p_discovery,
+            gateway::tauri_api::get_discovered_nodes,
+            gateway::tauri_api::connect_to_node,
+            gateway::tauri_api::disconnect_from_node,
+            
+            // Performance API
+            gateway::tauri_api::get_performance_report,
+            gateway::tauri_api::get_compression_stats,
+            gateway::tauri_api::get_cache_stats,
+            gateway::tauri_api::start_performance_benchmark,
+            gateway::tauri_api::get_benchmark_result,
+            
+            // Status API
+            gateway::tauri_api::get_system_info,
+            gateway::tauri_api::get_service_logs,
+            gateway::tauri_api::health_check,
+            
+            // Security API
+            gateway::tauri_api::get_security_config,
+            gateway::tauri_api::update_security_config,
+            gateway::tauri_api::generate_tls_certificate,
+            gateway::tauri_api::add_access_rule,
+            gateway::tauri_api::remove_access_rule,
+            gateway::tauri_api::get_access_rules,
+            gateway::tauri_api::validate_client_access,
+            gateway::tauri_api::get_active_sessions,
+            gateway::tauri_api::disconnect_session,
         ])
         .setup(|app| {
             // Create a custom titlebar for main window
