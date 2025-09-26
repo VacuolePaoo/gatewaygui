@@ -9,7 +9,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "vite:dev": "vite dev",
     "vite:build": "vite build",
-    "clean": "rm -rf node_modules dist src-tauri/target",
+    "clean": "rm -rf node_modules dist gateway/target",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
