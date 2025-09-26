@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::gateway::{RegistryEntry, UdpBroadcastEvent, UdpToken};
 use crate::gateway::protocol::WdicMessage;
-use crate::gateway::{MtlsConfig, Registry, UdpBroadcastManager};
+use crate::gateway::{MtlsConfig, Registry, UdpBroadcastManager, MountManager};
 use crate::gateway::cache::GatewayCache;
 use crate::gateway::compression::{CompressionConfig, CompressionManager};
 use crate::gateway::network::{NetworkEvent, NetworkManager};
@@ -148,6 +148,8 @@ pub struct Gateway {
     tls_manager: Arc<TlsManager>,
     /// 压缩管理器
     compression_manager: Arc<CompressionManager>,
+    /// 挂载管理器
+    mount_manager: Arc<MountManager>,
     /// 运行状态
     running: Arc<Mutex<bool>>,
 }
@@ -283,6 +285,7 @@ impl Gateway {
             cache,
             tls_manager,
             compression_manager,
+            mount_manager: Arc::new(MountManager::new()),
             running: Arc::new(Mutex::new(false)),
         })
     }
@@ -295,6 +298,11 @@ impl Gateway {
     /// 获取本地地址
     pub fn local_addr(&self) -> SocketAddr {
         self.network_manager.local_addr()
+    }
+
+    /// 获取挂载管理器
+    pub fn mount_manager(&self) -> &Arc<MountManager> {
+        &self.mount_manager
     }
 
     /// 获取UDP广播地址

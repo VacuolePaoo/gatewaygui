@@ -487,13 +487,18 @@ pub async fn mount_directory(
         mount_name,
         read_only,
         mount_time: Utc::now(),
-        file_count: 0, // 初始为0，稍后可以计算
-        total_size: 0, // 初始为0，稍后可以计算
+        file_count: 0, // 初始值，挂载时会计算实际值
+        total_size: 0, // 初始值，挂载时会计算实际值
     };
     
-    // 在注册表中注册挂载点
-    state.registry.register_mount_point(mount_point).await
-        .map_err(|e| format!("挂载失败: {e}"))?;
+    // 通过网关的挂载管理器进行挂载
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        gateway.mount_manager().mount_directory(mount_point).await
+            .map_err(|e| format!("挂载失败: {e}"))?;
+    } else {
+        return Err("网关未初始化".to_string());
+    }
 
     Ok(mount_id)
 }
@@ -505,9 +510,15 @@ pub async fn unmount_directory(mount_id: String) -> Result<(), String> {
     
     let global_state = GLOBAL_STATE.lock().await;
     let state = global_state.as_ref().unwrap();
-    // 从注册表中移除挂载点
-    state.registry.unregister_mount_point(&mount_id).await
-        .map_err(|e| format!("卸载失败: {e}"))?;
+    
+    // 通过网关的挂载管理器进行卸载
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        gateway.mount_manager().unmount_directory(&mount_id).await
+            .map_err(|e| format!("卸载失败: {e}"))?;
+    } else {
+        return Err("网关未初始化".to_string());
+    }
 
     Ok(())
 }
@@ -519,10 +530,16 @@ pub async fn get_mount_points() -> Result<Vec<MountPoint>, String> {
     
     let global_state = GLOBAL_STATE.lock().await;
     let state = global_state.as_ref().unwrap();
-    let mount_points = state.registry.get_mount_points().await
-        .map_err(|e| format!("获取挂载点失败: {e}"))?;
-
-    Ok(mount_points)
+    
+    // 通过网关的挂载管理器获取挂载点
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let mount_points = gateway.mount_manager().get_mount_points().await
+            .map_err(|e| format!("获取挂载点失败: {e}"))?;
+        Ok(mount_points)
+    } else {
+        Err("网关未初始化".to_string())
+    }
 }
 
 /// 列出目录内容
@@ -533,9 +550,16 @@ pub async fn list_directory(mount_id: String, path: String) -> Result<Vec<Direct
     let global_state = GLOBAL_STATE.lock().await;
     let state = global_state.as_ref().unwrap();
     
-    state.registry.list_directory(&mount_id, &path)
-        .await
-        .map_err(|e| format!("列出目录失败: {e}"))
+    // 通过网关的挂载管理器列出目录
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let entries = gateway.mount_manager().list_directory(&mount_id, &path)
+            .await
+            .map_err(|e| format!("列出目录失败: {e}"))?;
+        Ok(entries)
+    } else {
+        Err("网关未初始化".to_string())
+    }
 }
 
 /// 目录条目
@@ -555,6 +579,98 @@ pub struct DirectoryEntry {
     pub created_time: Option<DateTime<Utc>>,
     /// 文件类型
     pub file_type: String,
+}
+
+/// 创建搜索令牌
+#[command]
+pub async fn create_search_token(
+    mount_id: String,
+    patterns: Vec<String>,
+    permissions: Vec<String>,
+    ttl_seconds: u64,
+) -> Result<String, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let token_id = gateway.mount_manager().create_search_token(
+            mount_id,
+            patterns,
+            permissions,
+            ttl_seconds,
+        ).await
+        .map_err(|e| format!("创建搜索令牌失败: {e}"))?;
+        Ok(token_id)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 验证搜索令牌
+#[command]
+pub async fn validate_search_token(token_id: String, path: String) -> Result<bool, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let is_authorized = gateway.mount_manager().validate_search_token(&token_id, &path)
+            .await
+            .map_err(|e| format!("验证搜索令牌失败: {e}"))?;
+        Ok(is_authorized)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 文件授权
+#[command]
+pub async fn authorize_file(
+    file_path: PathBuf,
+    auth_type: String,
+    permissions: Vec<String>,
+) -> Result<String, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let auth_id = gateway.mount_manager().authorize_file(
+            file_path,
+            auth_type,
+            permissions,
+        ).await
+        .map_err(|e| format!("文件授权失败: {e}"))?;
+        Ok(auth_id)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 通过搜索令牌获取元数据
+#[command]
+pub async fn get_metadata_by_token(token_id: String) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let metadata = gateway.mount_manager().get_metadata_by_token(&token_id)
+            .await
+            .map_err(|e| format!("获取元数据失败: {e}"))?;
+        Ok(metadata)
+    } else {
+        Err("网关未初始化".to_string())
+    }
 }
 
 /// 创建文件传输任务
