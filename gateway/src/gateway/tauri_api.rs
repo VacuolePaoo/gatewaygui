@@ -31,8 +31,55 @@ use std::{
     collections::HashMap,
     sync::Arc,
 };
-use tauri::command;
+use tauri::{command, AppHandle, Emitter};
 use uuid::Uuid;
+
+/// 事件发射器 - 用于向前端发送事件
+#[derive(Debug)]
+pub struct EventEmitter {
+    app_handle: AppHandle,
+}
+
+impl EventEmitter {
+    pub fn new(app_handle: AppHandle) -> Self {
+        Self { app_handle }
+    }
+
+    /// 发送节点发现事件
+    pub fn emit_node_discovered(&self, node_data: serde_json::Value) -> Result<(), String> {
+        self.app_handle
+            .emit("node-discovered", node_data)
+            .map_err(|e| format!("发送节点发现事件失败: {e}"))
+    }
+
+    /// 发送数据传输事件
+    pub fn emit_data_transfer_event(&self, transfer_data: serde_json::Value) -> Result<(), String> {
+        self.app_handle
+            .emit("data-transfer", transfer_data)
+            .map_err(|e| format!("发送数据传输事件失败: {e}"))
+    }
+
+    /// 发送异常事件
+    pub fn emit_exception(&self, error_type: &str, message: &str, details: Option<serde_json::Value>) -> Result<(), String> {
+        let event_data = serde_json::json!({
+            "error_type": error_type,
+            "message": message,
+            "details": details,
+            "timestamp": Utc::now().to_rfc3339()
+        });
+        
+        self.app_handle
+            .emit("gateway-exception", event_data)
+            .map_err(|e| format!("发送异常事件失败: {e}"))
+    }
+
+    /// 发送缓存统计更新事件
+    pub fn emit_cache_stats_updated(&self, stats: serde_json::Value) -> Result<(), String> {
+        self.app_handle
+            .emit("cache-stats-updated", stats)
+            .map_err(|e| format!("发送缓存统计事件失败: {e}"))
+    }
+}
 
 // 全局状态管理器 - 使用异步Mutex包装Option
 pub static GLOBAL_STATE: once_cell::sync::Lazy<tokio::sync::Mutex<Option<GlobalGatewayState>>> = 
@@ -46,6 +93,20 @@ async fn ensure_global_state() -> Result<(), String> {
         let new_state = GlobalGatewayState::new().await
             .map_err(|e| format!("状态初始化失败: {e}"))?;
         *global_state = Some(new_state);
+    }
+    
+    Ok(())
+}
+
+/// 初始化事件发射器
+pub async fn initialize_event_emitter(app_handle: AppHandle) -> Result<(), String> {
+    let mut global_state = GLOBAL_STATE.lock().await;
+    
+    if let Some(state) = global_state.as_mut() {
+        state.event_emitter = Some(EventEmitter::new(app_handle));
+        info!("事件发射器已初始化");
+    } else {
+        return Err("全局状态未初始化".to_string());
     }
     
     Ok(())
@@ -66,6 +127,8 @@ pub struct GlobalGatewayState {
     pub network_manager: Arc<NetworkManager>,
     /// 注册表
     pub registry: Arc<Registry>,
+    /// 事件发射器
+    pub event_emitter: Option<EventEmitter>,
 }
 
 impl GlobalGatewayState {
@@ -89,6 +152,7 @@ impl GlobalGatewayState {
             security_manager,
             network_manager,
             registry,
+            event_emitter: None,
         })
     }
 }
@@ -671,6 +735,33 @@ pub async fn get_metadata_by_token(token_id: String) -> Result<Vec<std::collecti
     } else {
         Err("网关未初始化".to_string())
     }
+}
+
+/// 确认数据传输请求
+#[command]
+pub async fn confirm_data_transfer(
+    transfer_id: String,
+    accept: bool,
+    reason: Option<String>,
+) -> Result<(), String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let _state = global_state.as_ref().unwrap();
+    
+    // 这里应该处理数据传输确认逻辑
+    // 目前只是记录日志
+    if accept {
+        log::info!("数据传输请求已接受: {transfer_id}");
+    } else {
+        let reason = reason.unwrap_or_else(|| "用户拒绝".to_string());
+        log::info!("数据传输请求已拒绝: {transfer_id}, 原因: {reason}");
+        
+        // 发送403错误码给对端
+        // TODO: 实现实际的拒绝逻辑
+    }
+    
+    Ok(())
 }
 
 /// 创建文件传输任务

@@ -56,6 +56,7 @@ pub fn run() {
             gateway::tauri_api::validate_search_token,
             gateway::tauri_api::authorize_file,
             gateway::tauri_api::get_metadata_by_token,
+            gateway::tauri_api::confirm_data_transfer,
             gateway::tauri_api::create_file_transfer,
             gateway::tauri_api::get_transfer_status,
             gateway::tauri_api::cancel_transfer,
@@ -92,6 +93,14 @@ pub fn run() {
             gateway::tauri_api::disconnect_session,
         ])
         .setup(|app| {
+            // Initialize event emitter
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = gateway::tauri_api::initialize_event_emitter(app_handle).await {
+                    eprintln!("Failed to initialize event emitter: {}", e);
+                }
+            });
+
             // Create a custom titlebar for main window
             // On Windows this hides decoration and creates custom window controls
             // On macOS it needs hiddenTitle: true and titleBarStyle: overlay
