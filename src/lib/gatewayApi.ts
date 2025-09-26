@@ -1,8 +1,121 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 
 /**
  * 网关核心功能接口
  */
+
+// 事件类型定义
+export interface GatewayEvent {
+  type: string
+  data: any
+  timestamp: string
+}
+
+export interface NodeDiscoveryEvent {
+  node_id: string
+  ip_address: string
+  port: number
+  name: string
+  node_type: string
+}
+
+export interface DataTransferEvent {
+  transfer_id: string
+  status: 'requested' | 'accepted' | 'rejected' | 'completed' | 'failed'
+  metadata?: any
+  error?: string
+}
+
+export interface ExceptionEvent {
+  error_type: string
+  message: string
+  details?: any
+}
+
+// 回调函数类型
+export type EventCallback<T = any> = (data: T) => void | Promise<void>
+
+// 全局事件监听器存储
+const eventListeners: Map<string, EventCallback[]> = new Map()
+
+/**
+ * 注册事件监听器
+ * @param eventType 事件类型
+ * @param callback 回调函数
+ */
+export function addEventListener<T = any>(eventType: string, callback: EventCallback<T>): void {
+  if (!eventListeners.has(eventType)) {
+    eventListeners.set(eventType, [])
+  }
+  eventListeners.get(eventType)!.push(callback)
+}
+
+/**
+ * 移除事件监听器
+ * @param eventType 事件类型
+ * @param callback 回调函数
+ */
+export function removeEventListener<T = any>(eventType: string, callback: EventCallback<T>): void {
+  const listeners = eventListeners.get(eventType)
+  if (listeners) {
+    const index = listeners.indexOf(callback)
+    if (index > -1) {
+      listeners.splice(index, 1)
+    }
+  }
+}
+
+/**
+ * 初始化事件监听
+ */
+export async function initializeEventListeners(): Promise<void> {
+  // 监听新节点发现事件
+  await listen<NodeDiscoveryEvent>('node-discovered', (event) => {
+    const listeners = eventListeners.get('node-discovered')
+    if (listeners) {
+      listeners.forEach(callback => callback(event.payload))
+    }
+  })
+
+  // 监听数据传输事件
+  await listen<DataTransferEvent>('data-transfer', (event) => {
+    const listeners = eventListeners.get('data-transfer')
+    if (listeners) {
+      listeners.forEach(callback => callback(event.payload))
+    }
+  })
+
+  // 监听异常事件
+  await listen<ExceptionEvent>('gateway-exception', (event) => {
+    const listeners = eventListeners.get('gateway-exception')
+    if (listeners) {
+      listeners.forEach(callback => callback(event.payload))
+    }
+  })
+
+  // 监听缓存统计更新事件
+  await listen('cache-stats-updated', (event) => {
+    const listeners = eventListeners.get('cache-stats-updated')
+    if (listeners) {
+      listeners.forEach(callback => callback(event.payload))
+    }
+  })
+}
+
+/**
+ * 确认数据传输请求
+ * @param transferId 传输ID
+ * @param accept 是否接受
+ * @param reason 拒绝原因（如果拒绝）
+ */
+export async function confirmDataTransfer(
+  transferId: string,
+  accept: boolean,
+  reason?: string,
+): Promise<void> {
+  return await invoke('confirm_data_transfer', { transferId, accept, reason })
+}
 
 // 网关状态信息
 export interface GatewayStatus {
@@ -181,6 +294,57 @@ export async function getMountPoints(): Promise<MountPoint[]> {
  */
 export async function listDirectory(mountId: string, path: string): Promise<DirectoryEntry[]> {
   return await invoke('list_directory', { mountId, path })
+}
+
+/**
+ * 创建搜索令牌
+ * @param mountId 挂载点ID
+ * @param patterns 搜索模式列表
+ * @param permissions 权限列表
+ * @param ttlSeconds 生存时间（秒）
+ * @returns 搜索令牌ID
+ */
+export async function createSearchToken(
+  mountId: string,
+  patterns: string[],
+  permissions: string[],
+  ttlSeconds: number,
+): Promise<string> {
+  return await invoke('create_search_token', { mountId, patterns, permissions, ttlSeconds })
+}
+
+/**
+ * 验证搜索令牌
+ * @param tokenId 令牌ID
+ * @param path 要访问的路径
+ * @returns 是否授权
+ */
+export async function validateSearchToken(tokenId: string, path: string): Promise<boolean> {
+  return await invoke('validate_search_token', { tokenId, path })
+}
+
+/**
+ * 文件授权
+ * @param filePath 文件路径
+ * @param authType 授权类型
+ * @param permissions 权限列表
+ * @returns 授权ID
+ */
+export async function authorizeFile(
+  filePath: string,
+  authType: string,
+  permissions: string[],
+): Promise<string> {
+  return await invoke('authorize_file', { filePath, authType, permissions })
+}
+
+/**
+ * 通过搜索令牌获取元数据
+ * @param tokenId 搜索令牌ID
+ * @returns 文件元数据列表
+ */
+export async function getMetadataByToken(tokenId: string): Promise<Record<string, string>[]> {
+  return await invoke('get_metadata_by_token', { tokenId })
 }
 
 /**

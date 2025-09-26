@@ -7,8 +7,9 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::{interval, Duration};
+use chrono::{DateTime, Utc};
 
 use crate::gateway::protocol::WdicMessage;
 use crate::gateway::protocol::WdicProtocol;
@@ -79,6 +80,62 @@ impl ConnectionState {
     }
 }
 
+/// 发现的节点信息
+#[derive(Debug, Clone)]
+pub struct DiscoveredNodeInfo {
+    /// 节点 ID
+    pub node_id: String,
+    /// IP 地址
+    pub ip_address: String,
+    /// 端口
+    pub port: u16,
+    /// 节点名称
+    pub name: String,
+    /// 发现时间
+    pub discovered_time: DateTime<Utc>,
+    /// 最后看到时间
+    pub last_seen: DateTime<Utc>,
+    /// 是否在线
+    pub is_online: bool,
+    /// 节点类型
+    pub node_type: String,
+}
+
+impl DiscoveredNodeInfo {
+    /// 创建新的发现节点信息
+    pub fn new(
+        node_id: String,
+        ip_address: String,
+        port: u16,
+        name: String,
+        node_type: String,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            node_id,
+            ip_address,
+            port,
+            name,
+            discovered_time: now,
+            last_seen: now,
+            is_online: true,
+            node_type,
+        }
+    }
+
+    /// 更新最后看到时间
+    pub fn update_last_seen(&mut self) {
+        self.last_seen = Utc::now();
+        self.is_online = true;
+    }
+
+    /// 检查节点是否过期
+    pub fn is_expired(&self, timeout_seconds: i64) -> bool {
+        let now = Utc::now();
+        (now - self.last_seen).num_seconds() > timeout_seconds
+    }
+}
+
 /// 网络管理器
 ///
 /// 负责处理网络通信，包括 UDP 广播和消息收发。
@@ -98,6 +155,12 @@ pub struct NetworkManager {
     event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<NetworkEvent>>>>,
     /// 广播地址列表
     broadcast_addresses: Vec<SocketAddr>,
+    /// 已发现的节点
+    discovered_nodes: Arc<RwLock<HashMap<String, DiscoveredNodeInfo>>>,
+    /// P2P 发现状态
+    p2p_discovery_enabled: Arc<Mutex<bool>>,
+    /// 发现任务句柄
+    discovery_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl NetworkManager {
@@ -128,6 +191,9 @@ impl NetworkManager {
             event_sender,
             event_receiver: Arc::new(Mutex::new(Some(event_receiver))),
             broadcast_addresses,
+            discovered_nodes: Arc::new(RwLock::new(HashMap::new())),
+            p2p_discovery_enabled: Arc::new(Mutex::new(false)),
+            discovery_task_handle: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -605,8 +671,8 @@ impl NetworkManager {
             local_ip,
             listen_port,
             network_interfaces,
-            p2p_discovery_enabled: false, // 这里应该从实际状态获取
-            discovered_nodes: 0,          // 这里应该从实际状态获取
+            p2p_discovery_enabled: *self.p2p_discovery_enabled.lock().await,
+            discovered_nodes: self.discovered_nodes.read().await.len() as u32,
         })
     }
 
@@ -616,8 +682,41 @@ impl NetworkManager {
     ///
     /// 操作结果
     pub async fn start_p2p_discovery(&self) -> anyhow::Result<()> {
-        log::info!("启动 P2P 发现");
-        // 这里应该启动实际的 P2P 发现逻辑
+        info!("启动 P2P 发现");
+        
+        // 检查是否已经启动
+        {
+            let mut enabled = self.p2p_discovery_enabled.lock().await;
+            if *enabled {
+                warn!("P2P 发现已经启动");
+                return Ok(());
+            }
+            *enabled = true;
+        }
+
+        // 启动发现任务
+        let discovered_nodes = Arc::clone(&self.discovered_nodes);
+        let event_sender = self.event_sender.clone();
+        let udp_socket = Arc::clone(&self.udp_socket);
+        let protocol = self.protocol.clone();
+        let broadcast_addresses = self.broadcast_addresses.clone();
+        let local_addr = self.local_addr;
+        let p2p_enabled = Arc::clone(&self.p2p_discovery_enabled);
+
+        let task_handle = tokio::spawn(async move {
+            Self::discovery_task(
+                discovered_nodes,
+                event_sender,
+                udp_socket,
+                protocol,
+                broadcast_addresses,
+                local_addr,
+                p2p_enabled,
+            ).await;
+        });
+
+        *self.discovery_task_handle.lock().await = Some(task_handle);
+        info!("P2P 发现任务已启动");
         Ok(())
     }
 
@@ -627,8 +726,17 @@ impl NetworkManager {
     ///
     /// 操作结果
     pub async fn stop_p2p_discovery(&self) -> anyhow::Result<()> {
-        log::info!("停止 P2P 发现");
-        // 这里应该停止实际的 P2P 发现逻辑
+        info!("停止 P2P 发现");
+        
+        // 设置停止标志
+        *self.p2p_discovery_enabled.lock().await = false;
+
+        // 停止发现任务
+        if let Some(handle) = self.discovery_task_handle.lock().await.take() {
+            handle.abort();
+            info!("P2P 发现任务已停止");
+        }
+
         Ok(())
     }
 
@@ -638,23 +746,22 @@ impl NetworkManager {
     ///
     /// 发现的节点列表
     pub async fn get_discovered_nodes(&self) -> anyhow::Result<Vec<crate::gateway::tauri_api::DiscoveredNode>> {
-        use chrono::Utc;
-        // 这里应该从实际的发现机制获取节点
-        // 目前返回示例数据
-        let nodes = vec![
-            crate::gateway::tauri_api::DiscoveredNode {
-                node_id: uuid::Uuid::new_v4().to_string(),
-                ip_address: "192.168.1.100".to_string(),
-                port: 55555,
-                name: "示例节点1".to_string(),
-                discovered_time: Utc::now(),
-                last_seen: Utc::now(),
-                is_online: true,
-                node_type: "gateway".to_string(),
-            },
-        ];
+        let nodes = self.discovered_nodes.read().await;
+        let discovered_nodes: Vec<crate::gateway::tauri_api::DiscoveredNode> = nodes
+            .values()
+            .map(|node_info| crate::gateway::tauri_api::DiscoveredNode {
+                node_id: node_info.node_id.clone(),
+                ip_address: node_info.ip_address.clone(),
+                port: node_info.port,
+                name: node_info.name.clone(),
+                discovered_time: node_info.discovered_time,
+                last_seen: node_info.last_seen,
+                is_online: node_info.is_online,
+                node_type: node_info.node_type.clone(),
+            })
+            .collect();
 
-        Ok(nodes)
+        Ok(discovered_nodes)
     }
 
     /// 连接到指定节点
@@ -786,6 +893,184 @@ impl NetworkManager {
     pub async fn health_check(&self) -> Option<bool> {
         // 简单的健康检查：检查本地地址是否有效
         Some(!self.local_addr.ip().is_unspecified())
+    }
+
+    /// P2P 发现任务
+    ///
+    /// 定期广播发现消息并处理接收到的回复
+    async fn discovery_task(
+        discovered_nodes: Arc<RwLock<HashMap<String, DiscoveredNodeInfo>>>,
+        event_sender: mpsc::UnboundedSender<NetworkEvent>,
+        udp_socket: Arc<UdpSocket>,
+        protocol: WdicProtocol,
+        broadcast_addresses: Vec<SocketAddr>,
+        local_addr: SocketAddr,
+        p2p_enabled: Arc<Mutex<bool>>,
+    ) {
+        let mut discovery_interval = interval(Duration::from_secs(30)); // 每 30 秒发现一次
+        let mut cleanup_interval = interval(Duration::from_secs(300)); // 每 5 分钟清理一次过期节点
+        let mut receive_buffer = vec![0u8; 65536];
+
+        info!("P2P 发现任务开始运行");
+
+        loop {
+            tokio::select! {
+                _ = discovery_interval.tick() => {
+                    if !*p2p_enabled.lock().await {
+                        break;
+                    }
+
+                    // 发送发现广播
+                    Self::send_discovery_broadcast(
+                        &udp_socket,
+                        &protocol,
+                        &broadcast_addresses,
+                        local_addr,
+                    ).await;
+                }
+
+                _ = cleanup_interval.tick() => {
+                    if !*p2p_enabled.lock().await {
+                        break;
+                    }
+
+                    // 清理过期节点
+                    Self::cleanup_expired_nodes(&discovered_nodes).await;
+                }
+
+                // 处理接收到的消息
+                result = Self::try_receive_message(&udp_socket, &mut receive_buffer) => {
+                    if !*p2p_enabled.lock().await {
+                        break;
+                    }
+
+                    if let Ok((message, sender_addr)) = result {
+                        Self::handle_discovery_message(
+                            message,
+                            sender_addr,
+                            &discovered_nodes,
+                            &event_sender,
+                            local_addr,
+                        ).await;
+                    }
+                }
+            }
+        }
+
+        info!("P2P 发现任务已停止");
+    }
+
+    /// 发送发现广播
+    async fn send_discovery_broadcast(
+        udp_socket: &UdpSocket,
+        _protocol: &WdicProtocol,
+        broadcast_addresses: &[SocketAddr],
+        local_addr: SocketAddr,
+    ) {
+        // 创建发现消息
+        let discovery_message = WdicMessage::new_discovery(
+            format!("gateway-{}", uuid::Uuid::new_v4()),
+            "WDIC Gateway".to_string(),
+            local_addr,
+        );
+
+        if let Ok(serialized) = serde_json::to_vec(&discovery_message) {
+            for &addr in broadcast_addresses {
+                if let Err(e) = udp_socket.send_to(&serialized, addr) {
+                    debug!("发送发现广播到 {} 失败: {}", addr, e);
+                } else {
+                    debug!("已向 {} 发送发现广播", addr);
+                }
+            }
+        }
+    }
+
+    /// 清理过期节点
+    async fn cleanup_expired_nodes(discovered_nodes: &Arc<RwLock<HashMap<String, DiscoveredNodeInfo>>>) {
+        const EXPIRY_TIMEOUT: i64 = 600; // 10 分钟
+
+        let mut nodes = discovered_nodes.write().await;
+        let before_count = nodes.len();
+        
+        nodes.retain(|_node_id, node_info| {
+            let is_active = !node_info.is_expired(EXPIRY_TIMEOUT);
+            if !is_active {
+                debug!("移除过期节点: {}", node_info.node_id);
+            }
+            is_active
+        });
+
+        let after_count = nodes.len();
+        if before_count != after_count {
+            info!("清理了 {} 个过期节点，当前活跃节点: {}", before_count - after_count, after_count);
+        }
+    }
+
+    /// 尝试接收消息
+    async fn try_receive_message(
+        udp_socket: &UdpSocket,
+        buffer: &mut [u8],
+    ) -> Result<(WdicMessage, SocketAddr), std::io::Error> {
+        // 使用非阻塞方式接收
+        match udp_socket.recv_from(buffer) {
+            Ok((len, sender_addr)) => {
+                if let Ok(message) = serde_json::from_slice::<WdicMessage>(&buffer[..len]) {
+                    Ok((message, sender_addr))
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "消息反序列化失败",
+                    ))
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 处理发现消息
+    async fn handle_discovery_message(
+        message: WdicMessage,
+        sender_addr: SocketAddr,
+        discovered_nodes: &Arc<RwLock<HashMap<String, DiscoveredNodeInfo>>>,
+        event_sender: &mpsc::UnboundedSender<NetworkEvent>,
+        local_addr: SocketAddr,
+    ) {
+        // 不处理来自自己的消息
+        if sender_addr == local_addr {
+            return;
+        }
+
+        match message {
+            WdicMessage::Discovery { node_id, node_name, node_addr: _ } => {
+                let mut nodes = discovered_nodes.write().await;
+                
+                if let Some(existing_node) = nodes.get_mut(&node_id) {
+                    // 更新现有节点的最后见到时间
+                    existing_node.update_last_seen();
+                    debug!("更新现有节点: {}", node_id);
+                } else {
+                    // 添加新发现的节点
+                    let node_info = DiscoveredNodeInfo::new(
+                        node_id.clone(),
+                        sender_addr.ip().to_string(),
+                        sender_addr.port(),
+                        node_name,
+                        "gateway".to_string(),
+                    );
+                    
+                    nodes.insert(node_id.clone(), node_info);
+                    info!("发现新节点: {} 来自 {}", node_id, sender_addr);
+                    
+                    // 发送新节点发现事件
+                    let _ = event_sender.send(NetworkEvent::ConnectionEstablished {
+                        remote_addr: sender_addr,
+                    });
+                }
+            }
+            _ => {
+                debug!("收到非发现消息，忽略");
+            }
+        }
     }
 }
 
