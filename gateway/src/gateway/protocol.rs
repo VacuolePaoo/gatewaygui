@@ -7,6 +7,23 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
 
+/// 文件元数据
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FileMetadata {
+    /// 文件名
+    pub filename: String,
+    /// 文件大小
+    pub file_size: u64,
+    /// 文件哈希
+    pub file_hash: String,
+    /// MIME 类型
+    pub mime_type: String,
+    /// 创建时间
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 修改时间
+    pub modified_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// WDIC 协议消息类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum WdicMessage {
@@ -89,6 +106,48 @@ pub enum WdicMessage {
         node_name: String,
         /// 节点地址
         node_addr: SocketAddr,
+    },
+    /// 文件传输令牌请求
+    FileTransferTokenRequest {
+        /// 传输 ID
+        transfer_id: String,
+        /// 文件元数据
+        file_metadata: FileMetadata,
+        /// 发送者信息
+        sender_info: RegistryEntry,
+    },
+    /// 文件传输令牌响应
+    FileTransferTokenResponse {
+        /// 传输 ID
+        transfer_id: String,
+        /// 是否接受
+        accepted: bool,
+        /// 拒绝原因（如果拒绝）
+        rejection_reason: Option<String>,
+        /// 接收端信息
+        receiver_info: RegistryEntry,
+    },
+    /// 文件传输数据块
+    FileTransferData {
+        /// 传输 ID
+        transfer_id: String,
+        /// 数据块序号
+        chunk_sequence: u32,
+        /// 数据块大小
+        chunk_size: u32,
+        /// 数据内容
+        data: Vec<u8>,
+        /// 是否最后一块
+        is_final_chunk: bool,
+    },
+    /// 文件传输错误
+    FileTransferError {
+        /// 传输 ID
+        transfer_id: String,
+        /// 错误代码
+        error_code: u32,
+        /// 错误消息
+        error_message: String,
     },
 }
 
@@ -247,6 +306,105 @@ impl WdicMessage {
         }
     }
 
+    /// 创建文件传输令牌请求
+    ///
+    /// # 参数
+    ///
+    /// * `transfer_id` - 传输 ID
+    /// * `file_metadata` - 文件元数据
+    /// * `sender_info` - 发送者信息
+    ///
+    /// # 返回值
+    ///
+    /// 文件传输令牌请求消息
+    pub fn file_transfer_token_request(
+        transfer_id: String,
+        file_metadata: FileMetadata,
+        sender_info: RegistryEntry,
+    ) -> Self {
+        Self::FileTransferTokenRequest {
+            transfer_id,
+            file_metadata,
+            sender_info,
+        }
+    }
+
+    /// 创建文件传输令牌响应
+    ///
+    /// # 参数
+    ///
+    /// * `transfer_id` - 传输 ID
+    /// * `accepted` - 是否接受
+    /// * `rejection_reason` - 拒绝原因
+    /// * `receiver_info` - 接收者信息
+    ///
+    /// # 返回值
+    ///
+    /// 文件传输令牌响应消息
+    pub fn file_transfer_token_response(
+        transfer_id: String,
+        accepted: bool,
+        rejection_reason: Option<String>,
+        receiver_info: RegistryEntry,
+    ) -> Self {
+        Self::FileTransferTokenResponse {
+            transfer_id,
+            accepted,
+            rejection_reason,
+            receiver_info,
+        }
+    }
+
+    /// 创建文件传输数据块消息
+    ///
+    /// # 参数
+    ///
+    /// * `transfer_id` - 传输 ID
+    /// * `chunk_sequence` - 数据块序号
+    /// * `data` - 数据内容
+    /// * `is_final_chunk` - 是否最后一块
+    ///
+    /// # 返回值
+    ///
+    /// 文件传输数据块消息
+    pub fn file_transfer_data(
+        transfer_id: String,
+        chunk_sequence: u32,
+        data: Vec<u8>,
+        is_final_chunk: bool,
+    ) -> Self {
+        Self::FileTransferData {
+            transfer_id,
+            chunk_sequence,
+            chunk_size: data.len() as u32,
+            data,
+            is_final_chunk,
+        }
+    }
+
+    /// 创建文件传输错误消息
+    ///
+    /// # 参数
+    ///
+    /// * `transfer_id` - 传输 ID
+    /// * `error_code` - 错误代码
+    /// * `error_message` - 错误消息
+    ///
+    /// # 返回值
+    ///
+    /// 文件传输错误消息
+    pub fn file_transfer_error(
+        transfer_id: String,
+        error_code: u32,
+        error_message: String,
+    ) -> Self {
+        Self::FileTransferError {
+            transfer_id,
+            error_code,
+            error_message,
+        }
+    }
+
     /// 序列化消息为字节
     ///
     /// # 返回值
@@ -288,6 +446,10 @@ impl WdicMessage {
             Self::QueryResponse { .. } => "QueryResponse",
             Self::Error { .. } => "Error",
             Self::Discovery { .. } => "Discovery",
+            Self::FileTransferTokenRequest { .. } => "FileTransferTokenRequest",
+            Self::FileTransferTokenResponse { .. } => "FileTransferTokenResponse",
+            Self::FileTransferData { .. } => "FileTransferData",
+            Self::FileTransferError { .. } => "FileTransferError",
         }
     }
 
