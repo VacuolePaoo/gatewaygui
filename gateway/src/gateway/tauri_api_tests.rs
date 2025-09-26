@@ -5,7 +5,6 @@
 #![cfg(test)]
 
 use crate::gateway::tauri_api::*;
-use tokio;
 
 /// 创建测试用的全局状态
 async fn create_test_global_state() -> GlobalGatewayState {
@@ -128,7 +127,6 @@ pub fn generate_api_documentation() -> String {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-    use uuid::Uuid;
     
     use crate::gateway::tauri_api::*;
     use crate::gateway::tauri_api_tests::create_test_global_state;
@@ -156,6 +154,9 @@ mod tests {
         let is_valid = validate_config(default_config.clone()).await.unwrap();
         assert!(is_valid);
         println!("✓ 配置管理API测试通过");
+
+        // 3.1. 启动网关以便测试需要网关运行的功能
+        start_gateway(default_config).await.unwrap();
 
         // 4. 测试性能监控API
         let _perf_report = get_performance_report().await.unwrap();
@@ -205,6 +206,9 @@ mod tests {
         let logs = get_service_logs(Some(10), None).await.unwrap();
         assert!(logs.len() <= 10);
         println!("✓ 日志API测试通过");
+
+        // 清理：停止网关
+        stop_gateway().await.unwrap();
 
         println!("🎉 所有 Tauri API 测试通过！");
     }
