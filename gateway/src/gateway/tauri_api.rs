@@ -479,14 +479,21 @@ pub async fn mount_directory(
     }
     
     let state = global_state.as_ref().unwrap();
-    // 在注册表中注册挂载点
-    state.registry.register_mount_point(
-        mount_id.clone(),
-        local_path.clone(),
+    
+    // 创建挂载点结构
+    let mount_point = MountPoint {
+        id: mount_id.clone(),
+        local_path: local_path.clone(),
         mount_name,
         read_only,
-    ).await
-    .map_err(|e| format!("挂载失败: {e}"))?;
+        mount_time: Utc::now(),
+        file_count: 0, // 初始为0，稍后可以计算
+        total_size: 0, // 初始为0，稍后可以计算
+    };
+    
+    // 在注册表中注册挂载点
+    state.registry.register_mount_point(mount_point).await
+        .map_err(|e| format!("挂载失败: {e}"))?;
 
     Ok(mount_id)
 }
