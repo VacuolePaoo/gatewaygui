@@ -1,0 +1,603 @@
+import { invoke } from '@tauri-apps/api/core'
+
+/**
+ * 网关核心功能接口
+ */
+
+// 网关状态信息
+export interface GatewayStatus {
+  is_running: boolean
+  start_time: string | null
+  config: GatewayConfig | null
+  active_connections: number
+  total_requests: number
+  error_count: number
+  uptime_seconds: number
+}
+
+// 网关配置信息
+export interface GatewayConfig {
+  name: string
+  port: number
+  enable_compression: boolean
+  max_connections: number
+  enable_tls: boolean
+  read_timeout: number
+  write_timeout: number
+  idle_timeout: number
+}
+
+/**
+ * 启动网关服务
+ * @param config 网关配置
+ * @returns 操作结果
+ */
+export async function startGateway(config: GatewayConfig): Promise<void> {
+  return await invoke('start_gateway', { config })
+}
+
+/**
+ * 停止网关服务
+ * @returns 操作结果信息
+ */
+export async function stopGateway(): Promise<string> {
+  return await invoke('stop_gateway')
+}
+
+/**
+ * 重启网关服务
+ * @param config 网关配置（可选）
+ * @returns 操作结果
+ */
+export async function restartGateway(config?: GatewayConfig): Promise<void> {
+  return await invoke('restart_gateway', { config })
+}
+
+/**
+ * 获取网关状态
+ * @returns 网关状态信息
+ */
+export async function getGatewayStatus(): Promise<GatewayStatus> {
+  return await invoke('get_gateway_status')
+}
+
+/**
+ * 配置管理接口
+ */
+
+/**
+ * 获取网关配置
+ * @returns 网关配置信息
+ */
+export async function getGatewayConfig(): Promise<GatewayConfig | null> {
+  return await invoke('get_gateway_config')
+}
+
+/**
+ * 更新网关配置
+ * @param config 网关配置
+ * @returns 操作结果
+ */
+export async function updateGatewayConfig(config: GatewayConfig): Promise<void> {
+  return await invoke('update_gateway_config', { config })
+}
+
+/**
+ * 验证配置有效性
+ * @param config 网关配置
+ * @returns 验证结果
+ */
+export async function validateConfig(config: GatewayConfig): Promise<boolean> {
+  return await invoke('validate_config', { config })
+}
+
+/**
+ * 重置为默认配置
+ * @returns 默认配置
+ */
+export async function resetToDefaultConfig(): Promise<GatewayConfig> {
+  return await invoke('reset_to_default_config')
+}
+
+/**
+ * 目录和文件操作接口
+ */
+
+// 挂载点信息
+export interface MountPoint {
+  id: string
+  local_path: string
+  mount_name: string
+  read_only: boolean
+  mount_time: string
+  file_count: number
+  total_size: number
+}
+
+// 目录条目信息
+export interface DirectoryEntry {
+  name: string
+  path: string
+  is_directory: boolean
+  size: number
+  modified_time: string
+  created_time: string | null
+  file_type: string
+}
+
+// 文件传输任务信息
+export interface FileTransferTask {
+  id: string
+  source_path: string
+  target_path: string
+  status: TransferStatus
+  transferred_bytes: number
+  total_bytes: number
+  transfer_speed: number
+  start_time: string
+  estimated_completion: string | null
+}
+
+// 传输状态枚举
+export type TransferStatus = 'Pending' | 'Transferring' | 'Completed' | 'Cancelled' | 'Error'
+
+/**
+ * 挂载目录
+ * @param localPath 本地路径
+ * @param mountName 挂载名称
+ * @param readOnly 是否只读
+ * @returns 挂载点ID
+ */
+export async function mountDirectory(
+  localPath: string,
+  mountName: string,
+  readOnly: boolean,
+): Promise<string> {
+  return await invoke('mount_directory', { localPath, mountName, readOnly })
+}
+
+/**
+ * 卸载目录
+ * @param mountId 挂载点ID
+ * @returns 操作结果
+ */
+export async function unmountDirectory(mountId: string): Promise<void> {
+  return await invoke('unmount_directory', { mountId })
+}
+
+/**
+ * 获取挂载点列表
+ * @returns 挂载点列表
+ */
+export async function getMountPoints(): Promise<MountPoint[]> {
+  return await invoke('get_mount_points')
+}
+
+/**
+ * 列出目录内容
+ * @param mountId 挂载点ID
+ * @param path 路径
+ * @returns 目录条目列表
+ */
+export async function listDirectory(mountId: string, path: string): Promise<DirectoryEntry[]> {
+  return await invoke('list_directory', { mountId, path })
+}
+
+/**
+ * 创建文件传输任务
+ * @param sourcePath 源路径
+ * @param targetPath 目标路径
+ * @returns 任务ID
+ */
+export async function createFileTransfer(
+  sourcePath: string,
+  targetPath: string,
+): Promise<string> {
+  return await invoke('create_file_transfer', { sourcePath, targetPath })
+}
+
+/**
+ * 获取文件传输任务状态
+ * @param taskId 任务ID
+ * @returns 文件传输任务信息
+ */
+export async function getTransferStatus(taskId: string): Promise<FileTransferTask> {
+  return await invoke('get_transfer_status', { taskId })
+}
+
+/**
+ * 取消文件传输任务
+ * @param taskId 任务ID
+ * @returns 操作结果
+ */
+export async function cancelTransfer(taskId: string): Promise<void> {
+  return await invoke('cancel_transfer', { taskId })
+}
+
+/**
+ * 网络通信接口
+ */
+
+// 网络状态信息
+export interface NetworkStatus {
+  local_ip: string
+  listen_port: number
+  network_interfaces: NetworkInterface[]
+  p2p_discovery_enabled: boolean
+  discovered_nodes: number
+}
+
+// 网络接口信息
+export interface NetworkInterface {
+  name: string
+  ip_address: string
+  is_active: boolean
+  interface_type: string
+}
+
+// 发现的节点信息
+export interface DiscoveredNode {
+  node_id: string
+  ip_address: string
+  port: number
+  name: string
+  discovered_time: string
+  last_seen: string
+  is_online: boolean
+  node_type: string
+}
+
+/**
+ * 获取网络状态
+ * @returns 网络状态信息
+ */
+export async function getNetworkStatus(): Promise<NetworkStatus> {
+  return await invoke('get_network_status')
+}
+
+/**
+ * 启动P2P发现
+ * @returns 操作结果
+ */
+export async function startP2pDiscovery(): Promise<void> {
+  return await invoke('start_p2p_discovery')
+}
+
+/**
+ * 停止P2P发现
+ * @returns 操作结果
+ */
+export async function stopP2pDiscovery(): Promise<void> {
+  return await invoke('stop_p2p_discovery')
+}
+
+/**
+ * 获取已发现的节点列表
+ * @returns 节点列表
+ */
+export async function getDiscoveredNodes(): Promise<DiscoveredNode[]> {
+  return await invoke('get_discovered_nodes')
+}
+
+/**
+ * 连接到指定节点
+ * @param nodeId 节点ID
+ * @param ipAddress IP地址
+ * @param port 端口
+ * @returns 操作结果
+ */
+export async function connectToNode(
+  nodeId: string,
+  ipAddress: string,
+  port: number,
+): Promise<void> {
+  return await invoke('connect_to_node', { nodeId, ipAddress, port })
+}
+
+/**
+ * 断开与节点的连接
+ * @param nodeId 节点ID
+ * @returns 操作结果
+ */
+export async function disconnectFromNode(nodeId: string): Promise<void> {
+  return await invoke('disconnect_from_node', { nodeId })
+}
+
+/**
+ * 性能监控接口
+ */
+
+// 性能报告信息
+export interface PerformanceReport {
+  uptime_seconds: number
+  total_requests: number
+  current_connections: number
+  error_count: number
+  avg_response_time: number
+  total_transferred_bytes: number
+  current_transfer_rate: number
+  cpu_usage: number
+  memory_usage: number
+}
+
+// 压缩统计信息
+export interface CompressionStatsSnapshot {
+  total_files: number
+  compressed_files: number
+  total_original_size: number
+  total_compressed_size: number
+  compression_ratio: number
+  avg_compression_time: number
+}
+
+// 缓存统计信息
+export interface CacheStats {
+  item_count: number
+  hit_count: number
+  miss_count: number
+  hit_rate: number
+  memory_usage: number
+  max_capacity: number
+}
+
+// 基准测试结果
+export interface BenchmarkResult {
+  id: string
+  test_type: string
+  status: string
+  start_time: string
+  end_time: string | null
+  results: Record<string, number>
+  error_message: string | null
+}
+
+/**
+ * 获取性能报告
+ * @returns 性能报告
+ */
+export async function getPerformanceReport(): Promise<PerformanceReport> {
+  return await invoke('get_performance_report')
+}
+
+/**
+ * 获取压缩统计
+ * @returns 压缩统计信息
+ */
+export async function getCompressionStats(): Promise<CompressionStatsSnapshot> {
+  return await invoke('get_compression_stats')
+}
+
+/**
+ * 获取缓存统计
+ * @returns 缓存统计信息
+ */
+export async function getCacheStats(): Promise<CacheStats> {
+  return await invoke('get_cache_stats')
+}
+
+/**
+ * 开始性能基准测试
+ * @param testType 测试类型
+ * @param durationSeconds 持续时间（秒）
+ * @returns 基准测试ID
+ */
+export async function startPerformanceBenchmark(
+  testType: string,
+  durationSeconds: number,
+): Promise<string> {
+  return await invoke('start_performance_benchmark', { testType, durationSeconds })
+}
+
+/**
+ * 获取基准测试结果
+ * @param benchmarkId 基准测试ID
+ * @returns 基准测试结果
+ */
+export async function getBenchmarkResult(benchmarkId: string): Promise<BenchmarkResult> {
+  return await invoke('get_benchmark_result', { benchmarkId })
+}
+
+/**
+ * 状态查询接口
+ */
+
+// 系统信息
+export interface SystemInfo {
+  os_name: string
+  os_version: string
+  kernel_version: string
+  host_name: string
+  cpu_count: number
+  cpu_usage: number
+  total_memory: number
+  used_memory: number
+  available_memory: number
+  uptime: number
+}
+
+// 日志条目
+export interface LogEntry {
+  timestamp: string
+  level: string
+  module: string
+  message: string
+}
+
+// 健康状态
+export interface HealthStatus {
+  overall_status: string
+  gateway_status: string
+  cache_status: string
+  network_status: string
+  timestamp: string
+}
+
+/**
+ * 获取系统信息
+ * @returns 系统信息
+ */
+export async function getSystemInfo(): Promise<SystemInfo> {
+  return await invoke('get_system_info')
+}
+
+/**
+ * 获取服务日志
+ * @param lines 行数（可选）
+ * @param level 日志级别（可选）
+ * @returns 日志条目列表
+ */
+export async function getServiceLogs(
+  lines?: number,
+  level?: string,
+): Promise<LogEntry[]> {
+  return await invoke('get_service_logs', { lines, level })
+}
+
+/**
+ * 健康检查
+ * @returns 健康状态
+ */
+export async function healthCheck(): Promise<HealthStatus> {
+  return await invoke('health_check')
+}
+
+/**
+ * 安全管理接口
+ */
+
+// 安全配置
+export interface SecurityConfig {
+  tls_enabled: boolean
+  cert_path: string | null
+  key_path: string | null
+  ca_cert_path: string | null
+  verify_client_cert: boolean
+  allowed_clients: string[]
+  access_control_rules: AccessRule[]
+}
+
+// 访问控制规则
+export interface AccessRule {
+  id: string
+  name: string
+  client: string
+  allowed_paths: string[]
+  permissions: string[]
+  enabled: boolean
+}
+
+// 证书信息
+export interface CertificateInfo {
+  common_name: string
+  organization: string
+  country: string
+  validity_days: number
+  subject_alt_names: string[]
+}
+
+// 生成的证书
+export interface GeneratedCertificate {
+  cert_path: string
+  key_path: string
+  cert_pem: string
+  key_pem: string
+  generated_time: string
+  expiry_time: string
+}
+
+// 活跃会话信息
+export interface ActiveSession {
+  session_id: string
+  client_ip: string
+  user_id: string | null
+  connect_time: string
+  last_activity: string
+  bytes_transferred: number
+  status: string
+}
+
+/**
+ * 获取安全配置
+ * @returns 安全配置
+ */
+export async function getSecurityConfig(): Promise<SecurityConfig> {
+  return await invoke('get_security_config')
+}
+
+/**
+ * 更新安全配置
+ * @param config 安全配置
+ * @returns 操作结果
+ */
+export async function updateSecurityConfig(config: SecurityConfig): Promise<void> {
+  return await invoke('update_security_config', { config })
+}
+
+/**
+ * 生成TLS证书
+ * @param certInfo 证书信息
+ * @returns 生成的证书
+ */
+export async function generateTlsCertificate(
+  certInfo: CertificateInfo,
+): Promise<GeneratedCertificate> {
+  return await invoke('generate_tls_certificate', { certInfo })
+}
+
+/**
+ * 添加访问控制规则
+ * @param rule 访问控制规则
+ * @returns 规则ID
+ */
+export async function addAccessRule(rule: AccessRule): Promise<string> {
+  return await invoke('add_access_rule', { rule })
+}
+
+/**
+ * 删除访问控制规则
+ * @param ruleId 规则ID
+ * @returns 操作结果
+ */
+export async function removeAccessRule(ruleId: string): Promise<void> {
+  return await invoke('remove_access_rule', { ruleId })
+}
+
+/**
+ * 获取访问控制规则列表
+ * @returns 访问控制规则列表
+ */
+export async function getAccessRules(): Promise<AccessRule[]> {
+  return await invoke('get_access_rules')
+}
+
+/**
+ * 验证客户端访问权限
+ * @param clientIp 客户端IP
+ * @param requestedPath 请求路径
+ * @param operation 操作类型
+ * @returns 是否允许访问
+ */
+export async function validateClientAccess(
+  clientIp: string,
+  requestedPath: string,
+  operation: string,
+): Promise<boolean> {
+  return await invoke('validate_client_access', { clientIp, requestedPath, operation })
+}
+
+/**
+ * 获取活跃会话列表
+ * @returns 活跃会话列表
+ */
+export async function getActiveSessions(): Promise<ActiveSession[]> {
+  return await invoke('get_active_sessions')
+}
+
+/**
+ * 强制断开会话
+ * @param sessionId 会话ID
+ * @returns 操作结果
+ */
+export async function disconnectSession(sessionId: string): Promise<void> {
+  return await invoke('disconnect_session', { sessionId })
+}
