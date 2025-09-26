@@ -81,6 +81,15 @@ pub enum WdicMessage {
         /// 错误描述
         message: String,
     },
+    /// P2P 节点发现消息
+    Discovery {
+        /// 节点 ID
+        node_id: String,
+        /// 节点名称
+        node_name: String,
+        /// 节点地址
+        node_addr: SocketAddr,
+    },
 }
 
 impl WdicMessage {
@@ -219,6 +228,25 @@ impl WdicMessage {
         Self::Error { code, message }
     }
 
+    /// 创建 P2P 发现消息
+    ///
+    /// # 参数
+    ///
+    /// * `node_id` - 节点 ID
+    /// * `node_name` - 节点名称
+    /// * `node_addr` - 节点地址
+    ///
+    /// # 返回值
+    ///
+    /// 发现消息实例
+    pub fn new_discovery(node_id: String, node_name: String, node_addr: SocketAddr) -> Self {
+        Self::Discovery {
+            node_id,
+            node_name,
+            node_addr,
+        }
+    }
+
     /// 序列化消息为字节
     ///
     /// # 返回值
@@ -259,6 +287,7 @@ impl WdicMessage {
             Self::QueryGateways { .. } => "QueryGateways",
             Self::QueryResponse { .. } => "QueryResponse",
             Self::Error { .. } => "Error",
+            Self::Discovery { .. } => "Discovery",
         }
     }
 

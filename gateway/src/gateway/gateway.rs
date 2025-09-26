@@ -53,6 +53,8 @@ pub struct GatewayConfig {
     pub max_cache_size: u64,
     /// 缓存清理间隔（秒）
     pub cache_cleanup_interval: u64,
+    /// 文件保存目录路径
+    pub save_directory: PathBuf,
     /// TLS 配置
     pub tls_config: MtlsConfig,
 }
@@ -73,6 +75,7 @@ impl Default for GatewayConfig {
             cache_default_ttl: 3600,            // 1 小时
             max_cache_size: 1024 * 1024 * 1024, // 1 GB
             cache_cleanup_interval: 300,        // 5 分钟
+            save_directory: PathBuf::from("./downloads"),
             tls_config: MtlsConfig::default(),
         }
     }
