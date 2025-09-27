@@ -63,6 +63,9 @@ pub fn run() {
             gateway::tauri_api::create_file_transfer,
             gateway::tauri_api::get_transfer_status,
             gateway::tauri_api::cancel_transfer,
+            gateway::tauri_api::get_all_transfers,
+            gateway::tauri_api::cleanup_completed_transfers,
+            gateway::tauri_api::get_network_stats,
             
             // Network API
             gateway::tauri_api::get_network_status,

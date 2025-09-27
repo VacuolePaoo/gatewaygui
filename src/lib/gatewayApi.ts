@@ -114,7 +114,11 @@ export async function confirmDataTransfer(
   accept: boolean,
   reason?: string,
 ): Promise<void> {
-  return await invoke('confirm_data_transfer', { transferId, accept, reason })
+  return await invoke('confirm_data_transfer', { 
+    transfer_id: transferId, 
+    accept, 
+    reason 
+  })
 }
 
 // 网关状态信息
@@ -266,7 +270,11 @@ export async function mountDirectory(
   mountName: string,
   readOnly: boolean,
 ): Promise<string> {
-  return await invoke('mount_directory', { localPath, mountName, readOnly })
+  return await invoke('mount_directory', { 
+    local_path: localPath, 
+    mount_name: mountName, 
+    read_only: readOnly 
+  })
 }
 
 /**
@@ -275,7 +283,7 @@ export async function mountDirectory(
  * @returns 操作结果
  */
 export async function unmountDirectory(mountId: string): Promise<void> {
-  return await invoke('unmount_directory', { mountId })
+  return await invoke('unmount_directory', { mount_id: mountId })
 }
 
 /**
@@ -293,7 +301,7 @@ export async function getMountPoints(): Promise<MountPoint[]> {
  * @returns 目录条目列表
  */
 export async function listDirectory(mountId: string, path: string): Promise<DirectoryEntry[]> {
-  return await invoke('list_directory', { mountId, path })
+  return await invoke('list_directory', { mount_id: mountId, path })
 }
 
 /**
@@ -366,7 +374,7 @@ export async function createFileTransfer(
  * @returns 文件传输任务信息
  */
 export async function getTransferStatus(taskId: string): Promise<FileTransferTask> {
-  return await invoke('get_transfer_status', { taskId })
+  return await invoke('get_transfer_status', { task_id: taskId })
 }
 
 /**
@@ -375,7 +383,7 @@ export async function getTransferStatus(taskId: string): Promise<FileTransferTas
  * @returns 操作结果
  */
 export async function cancelTransfer(taskId: string): Promise<void> {
-  return await invoke('cancel_transfer', { taskId })
+  return await invoke('cancel_transfer', { task_id: taskId })
 }
 
 /**
@@ -455,7 +463,7 @@ export async function connectToNode(
   ipAddress: string,
   port: number,
 ): Promise<void> {
-  return await invoke('connect_to_node', { nodeId, ipAddress, port })
+  return await invoke('connect_to_node', { node_id: nodeId, ip_address: ipAddress, port })
 }
 
 /**
@@ -464,7 +472,7 @@ export async function connectToNode(
  * @returns 操作结果
  */
 export async function disconnectFromNode(nodeId: string): Promise<void> {
-  return await invoke('disconnect_from_node', { nodeId })
+  return await invoke('disconnect_from_node', { node_id: nodeId })
 }
 
 /**
@@ -558,7 +566,7 @@ export async function startPerformanceBenchmark(
  * @returns 基准测试结果
  */
 export async function getBenchmarkResult(benchmarkId: string): Promise<BenchmarkResult> {
-  return await invoke('get_benchmark_result', { benchmarkId })
+  return await invoke('get_benchmark_result', { benchmark_id: benchmarkId })
 }
 
 /**
@@ -705,7 +713,7 @@ export async function updateSecurityConfig(config: SecurityConfig): Promise<void
 export async function generateTlsCertificate(
   certInfo: CertificateInfo,
 ): Promise<GeneratedCertificate> {
-  return await invoke('generate_tls_certificate', { certInfo })
+  return await invoke('generate_tls_certificate', { cert_info: certInfo })
 }
 
 /**
@@ -723,7 +731,7 @@ export async function addAccessRule(rule: AccessRule): Promise<string> {
  * @returns 操作结果
  */
 export async function removeAccessRule(ruleId: string): Promise<void> {
-  return await invoke('remove_access_rule', { ruleId })
+  return await invoke('remove_access_rule', { rule_id: ruleId })
 }
 
 /**
@@ -746,7 +754,11 @@ export async function validateClientAccess(
   requestedPath: string,
   operation: string,
 ): Promise<boolean> {
-  return await invoke('validate_client_access', { clientIp, requestedPath, operation })
+  return await invoke('validate_client_access', { 
+    client_ip: clientIp, 
+    requested_path: requestedPath, 
+    operation 
+  })
 }
 
 /**
@@ -763,5 +775,91 @@ export async function getActiveSessions(): Promise<ActiveSession[]> {
  * @returns 操作结果
  */
 export async function disconnectSession(sessionId: string): Promise<void> {
-  return await invoke('disconnect_session', { sessionId })
+  return await invoke('disconnect_session', { session_id: sessionId })
+}
+
+/**
+ * 创建数据传输请求
+ * @param sourceNodeId 源节点ID
+ * @param targetNodeId 目标节点ID（可选）
+ * @param filePath 文件路径
+ * @param fileSize 文件大小
+ * @returns 传输请求ID
+ */
+export async function createDataTransferRequest(
+  sourceNodeId: string,
+  targetNodeId: string | null,
+  filePath: string,
+  fileSize: number,
+): Promise<string> {
+  return await invoke('create_data_transfer_request', {
+    source_node_id: sourceNodeId,
+    target_node_id: targetNodeId,
+    file_path: filePath,
+    file_size: fileSize,
+  })
+}
+
+/**
+ * 获取待处理的传输请求列表
+ * @returns 待处理传输请求列表
+ */
+export async function getPendingTransferRequests(): Promise<DataTransferRequest[]> {
+  return await invoke('get_pending_transfer_requests')
+}
+
+/**
+ * 获取传输请求详情
+ * @param transferId 传输请求ID
+ * @returns 传输请求详情
+ */
+export async function getTransferRequestDetails(transferId: string): Promise<DataTransferRequest> {
+  return await invoke('get_transfer_request_details', { transfer_id: transferId })
+}
+
+// 数据传输请求信息
+export interface DataTransferRequest {
+  transfer_id: string
+  source_node_id: string
+  target_node_id: string | null
+  file_path: string
+  file_size: number
+  request_time: string
+  status: DataTransferRequestStatus
+}
+
+// 数据传输请求状态
+export type DataTransferRequestStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Expired'
+
+// 网络统计信息
+export interface NetworkStats {
+  active_connections: number
+  discovered_nodes: number
+  p2p_discovery_enabled: boolean
+  active_transfers: number
+  local_address: string
+}
+
+/**
+ * 获取所有活跃的文件传输任务
+ * @returns 所有传输任务列表
+ */
+export async function getAllTransfers(): Promise<FileTransferTask[]> {
+  return await invoke('get_all_transfers')
+}
+
+/**
+ * 清理已完成的文件传输任务
+ * @returns 清理的任务数量
+ */
+export async function cleanupCompletedTransfers(): Promise<number> {
+  return await invoke('cleanup_completed_transfers')
+}
+
+/**
+ * 获取网络连接统计信息
+ * @returns 网络统计信息
+ */
+export async function getNetworkStats(): Promise<NetworkStats> {
+  return await invoke('get_network_stats')
 }
