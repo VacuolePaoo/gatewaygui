@@ -932,8 +932,31 @@ impl NetworkManager {
         config.set_initial_max_streams_bidi(100);
         config.set_disable_active_migration(true);
         
-        // 为了简化实现，这里使用不安全的连接（生产环境应该使用 TLS）
-        config.verify_peer(false);
+        // 启用 TLS 验证
+        config.verify_peer(true);
+        
+        // 设置 TLS 参数
+        if let Some(tls_manager) = &self.tls_manager {
+            // 加载客户端证书
+            if let Some(client_cert) = tls_manager.get_certificate("client") {
+                if let Some(client_key) = tls_manager.get_private_key("client") {
+                    // 设置客户端证书和私钥
+                    config.load_cert_chain_from_pem_file(&tls_manager.config.client_cert_path)
+                        .map_err(|e| anyhow::anyhow!("加载客户端证书失败: {}", e))?;
+                    config.load_priv_key_from_pem_file(&tls_manager.config.client_key_path)
+                        .map_err(|e| anyhow::anyhow!("加载客户端私钥失败: {}", e))?;
+                }
+            }
+            
+            // 设置 CA 证书用于验证服务端
+            if tls_manager.get_certificate("ca").is_some() {
+                config.load_verify_locations_from_file(&tls_manager.config.ca_cert_path)
+                    .map_err(|e| anyhow::anyhow!("加载 CA 证书失败: {}", e))?;
+            }
+        } else {
+            warn!("TLS 管理器未初始化，使用不安全连接");
+            config.verify_peer(false);
+        }
 
         // 生成连接 ID
         let scid = quiche::ConnectionId::from_ref(&uuid::Uuid::new_v4().as_bytes()[..]);
@@ -960,33 +983,156 @@ impl NetworkManager {
             log::debug!("已发送 {} 字节握手数据到 {}", write_len, send_info.to);
         }
 
-        // 等待握手完成（简化实现，实际应该在后台任务中处理）
-        let connection_established = self.complete_quic_handshake(&mut connection, addr).await?;
+        // 在后台任务中处理握手完成
+        let udp_socket = self.udp_socket.clone();
+        let event_sender = self.event_sender.clone();
+        let connections = Arc::clone(&self.connections);
+        let node_connections = Arc::clone(&self.node_connections);
+        let discovered_nodes = Arc::clone(&self.discovered_nodes);
+        let node_id_clone = node_id.to_string();
         
-        if connection_established {
-            // 连接成功，存储连接信息
-            let mut connections = self.connections.lock().await;
-            connections.insert(addr, ConnectionState::new(addr));
-            
-            let mut node_connections = self.node_connections.write().await;
-            node_connections.insert(node_id.to_string(), addr);
-            
-            // 更新发现节点状态
-            let mut discovered_nodes = self.discovered_nodes.write().await;
-            if let Some(node_info) = discovered_nodes.get_mut(node_id) {
-                node_info.is_online = true;
-                node_info.update_last_seen();
+        tokio::spawn(async move {
+            // 异步处理握手完成
+            match Self::complete_quic_handshake_async(connection, addr, udp_socket).await {
+                Ok(established_connection) => {
+                    // 连接成功，存储连接信息
+                    {
+                        let mut connections_guard = connections.lock().await;
+                        connections_guard.insert(addr, ConnectionState::new(addr));
+                    }
+                    
+                    {
+                        let mut node_connections_guard = node_connections.write().await;
+                        node_connections_guard.insert(node_id_clone.clone(), addr);
+                    }
+                    
+                    // 更新发现节点状态
+                    {
+                        let mut discovered_nodes_guard = discovered_nodes.write().await;
+                        if let Some(node_info) = discovered_nodes_guard.get_mut(&node_id_clone) {
+                            node_info.is_online = true;
+                            node_info.update_last_seen();
+                        }
+                    }
+                    
+                    // 发送连接建立事件
+                    let _ = event_sender.send(NetworkEvent::ConnectionEstablished {
+                        remote_addr: addr,
+                    });
+                    
+                    log::info!("成功建立 QUIC 连接到节点 {} ({})", node_id_clone, addr);
+                }
+                Err(e) => {
+                    log::error!("QUIC 握手失败: {}", e);
+                    let _ = event_sender.send(NetworkEvent::ConnectionFailed {
+                        remote_addr: addr,
+                        error: e.to_string(),
+                    });
+                }
             }
-            
-            // 发送连接建立事件
-            let _ = self.event_sender.send(NetworkEvent::ConnectionEstablished {
-                remote_addr: addr,
-            });
-            
-            log::info!("成功建立 QUIC 连接到节点 {node_id} ({addr})");
-            Ok(())
+        });
+
+        Ok(())
+    }
+
+    /// 异步完成 QUIC 握手（专用于后台任务）
+    ///
+    /// # 参数
+    ///
+    /// * `connection` - QUIC 连接对象
+    /// * `addr` - 远程地址
+    /// * `udp_socket` - UDP 套接字
+    ///
+    /// # 返回值
+    ///
+    /// 成功建立的连接对象
+    async fn complete_quic_handshake_async(
+        mut connection: quiche::Connection,
+        addr: SocketAddr,
+        udp_socket: Arc<tokio::net::UdpSocket>,
+    ) -> anyhow::Result<quiche::Connection> {
+        // 设置握手超时
+        let handshake_timeout = tokio::time::Duration::from_secs(30);
+        let start_time = tokio::time::Instant::now();
+
+        let mut recv_buf = [0; 1350];
+        let mut send_buf = [0; 1350];
+        
+        while !connection.is_established() {
+            if tokio::time::Instant::now() - start_time > handshake_timeout {
+                return Err(anyhow::anyhow!("QUIC 握手超时"));
+            }
+
+            // 处理握手状态机
+            if connection.is_in_early_data() || connection.is_established() {
+                break;
+            }
+
+            // 尝试发送握手数据
+            loop {
+                match connection.send(&mut send_buf) {
+                    Ok((write_len, send_info)) => {
+                        if write_len == 0 {
+                            break;
+                        }
+
+                        udp_socket.send_to(&send_buf[..write_len], send_info.to).await
+                            .map_err(|e| anyhow::anyhow!("发送握手数据失败: {}", e))?;
+                        
+                        log::debug!("发送了 {} 字节的握手数据", write_len);
+                    }
+                    Err(quiche::Error::Done) => {
+                        break;
+                    }
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("生成握手数据失败: {}", e));
+                    }
+                }
+            }
+
+            // 等待接收握手响应
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(500),
+                udp_socket.recv_from(&mut recv_buf),
+            ).await {
+                Ok(Ok((recv_len, recv_addr))) if recv_addr == addr => {
+                    // 处理接收到的握手数据
+                    let recv_info = quiche::RecvInfo {
+                        to: udp_socket.local_addr()
+                            .map_err(|e| anyhow::anyhow!("获取本地地址失败: {}", e))?,
+                        from: recv_addr,
+                    };
+
+                    match connection.recv(&mut recv_buf[..recv_len], recv_info) {
+                        Ok(_) => {
+                            log::debug!("处理了 {} 字节的握手数据", recv_len);
+                        }
+                        Err(e) => {
+                            log::warn!("处理握手数据失败: {}", e);
+                        }
+                    }
+                }
+                Ok(Ok(_)) => {
+                    // 收到来自其他地址的数据，忽略
+                }
+                Ok(Err(e)) => {
+                    return Err(anyhow::anyhow!("接收握手数据失败: {}", e));
+                }
+                Err(_) => {
+                    // 超时，继续下一轮
+                    log::debug!("握手接收超时，继续重试");
+                }
+            }
+
+            // 短暂延迟避免忙等待
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+
+        if connection.is_established() {
+            log::info!("QUIC 握手成功完成");
+            Ok(connection)
         } else {
-            Err(anyhow::anyhow!("QUIC 握手失败"))
+            Err(anyhow::anyhow!("QUIC 握手未能建立连接"))
         }
     }
 
@@ -1090,11 +1236,20 @@ impl NetworkManager {
         let data = message.to_bytes()?;
         
         // 检查是否有到目标地址的活跃 QUIC 连接
-        // 简化实现：如果没有 QUIC 连接，回退到 UDP
-        log::debug!("发送 {} 消息到 {} (通过 QUIC/UDP)", message.message_type(), target);
+        let connections = self.connections.lock().await;
+        if let Some(connection_state) = connections.get(&target) {
+            // 有活跃连接，尝试通过 QUIC 流发送
+            if connection_state.is_connected() {
+                log::debug!("通过已建立的 QUIC 连接发送 {} 消息到 {}", message.message_type(), target);
+                
+                // 在实际实现中，这里需要使用 QUIC 连接的流来发送数据
+                // 当前版本先记录尝试，然后回退到 UDP
+                log::debug!("QUIC 流发送功能待完善，回退到 UDP");
+            }
+        }
         
-        // 在实际的 QUIC 实现中，这里应该使用 QUIC 连接发送数据
-        // 目前先使用 UDP 发送，但保留 QUIC 的接口
+        // 回退到 UDP 发送
+        log::debug!("发送 {} 消息到 {} (通过 UDP)", message.message_type(), target);
         self.udp_socket
             .send_to(&data, target)
             .map_err(|e| anyhow::anyhow!("发送消息到 {target} 失败: {e}"))?;
