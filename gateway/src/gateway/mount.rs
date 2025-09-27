@@ -68,11 +68,31 @@ impl SearchToken {
 
         // 检查路径是否匹配任何允许的模式
         self.allowed_patterns.iter().any(|pattern| {
-            // 简单的模式匹配，支持通配符
-            if pattern.ends_with("*") {
-                let prefix = &pattern[..pattern.len() - 1];
-                path.starts_with(prefix)
+            // 支持基本的 glob 模式匹配
+            if pattern.contains('*') {
+                if pattern.starts_with('*') && pattern.len() > 1 {
+                    // 后缀匹配，如 "*.txt"
+                    let suffix = &pattern[1..];
+                    path.ends_with(suffix)
+                } else if pattern.ends_with('*') && pattern.len() > 1 {
+                    // 前缀匹配，如 "prefix*"
+                    let prefix = &pattern[..pattern.len() - 1];
+                    path.starts_with(prefix)
+                } else if pattern == "*" {
+                    // 匹配所有
+                    true
+                } else {
+                    // 中间包含 * 的复杂模式，使用简化匹配
+                    // 这里可以扩展为更复杂的 glob 匹配
+                    let parts: Vec<&str> = pattern.split('*').collect();
+                    if parts.len() == 2 {
+                        path.starts_with(parts[0]) && path.ends_with(parts[1])
+                    } else {
+                        false
+                    }
+                }
             } else {
+                // 精确匹配
                 path == pattern
             }
         })

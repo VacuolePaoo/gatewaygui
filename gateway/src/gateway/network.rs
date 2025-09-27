@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::{interval, Duration};
 use chrono::{DateTime, Utc};
+use std::path::PathBuf;
 
 use crate::gateway::protocol::WdicMessage;
 use crate::gateway::protocol::WdicProtocol;
@@ -101,6 +102,82 @@ pub struct DiscoveredNodeInfo {
     pub node_type: String,
 }
 
+/// 文件传输任务信息
+#[derive(Debug, Clone)]
+pub struct FileTransferTaskInfo {
+    /// 任务 ID
+    pub task_id: String,
+    /// 源路径
+    pub source_path: PathBuf,
+    /// 目标路径
+    pub target_path: PathBuf,
+    /// 任务状态
+    pub status: crate::gateway::TransferStatus,
+    /// 已传输字节数
+    pub transferred_bytes: u64,
+    /// 总字节数
+    pub total_bytes: u64,
+    /// 传输速度 (字节/秒)
+    pub transfer_speed: u64,
+    /// 开始时间
+    pub start_time: DateTime<Utc>,
+    /// 预计完成时间
+    pub estimated_completion: Option<DateTime<Utc>>,
+    /// 目标节点 ID (如果是远程传输)
+    pub target_node_id: Option<String>,
+    /// 错误信息
+    pub error_message: Option<String>,
+}
+
+impl FileTransferTaskInfo {
+    /// 创建新的文件传输任务
+    pub fn new(
+        task_id: String,
+        source_path: PathBuf,
+        target_path: PathBuf,
+        total_bytes: u64,
+        target_node_id: Option<String>,
+    ) -> Self {
+        Self {
+            task_id,
+            source_path,
+            target_path,
+            status: crate::gateway::TransferStatus::Pending,
+            transferred_bytes: 0,
+            total_bytes,
+            transfer_speed: 0,
+            start_time: Utc::now(),
+            estimated_completion: None,
+            target_node_id,
+            error_message: None,
+        }
+    }
+
+    /// 更新传输进度
+    pub fn update_progress(&mut self, transferred_bytes: u64, transfer_speed: u64) {
+        self.transferred_bytes = transferred_bytes;
+        self.transfer_speed = transfer_speed;
+        
+        // 计算预计完成时间
+        if transfer_speed > 0 && transferred_bytes < self.total_bytes {
+            let remaining_bytes = self.total_bytes - transferred_bytes;
+            let remaining_seconds = remaining_bytes / transfer_speed;
+            self.estimated_completion = Some(Utc::now() + chrono::Duration::seconds(remaining_seconds as i64));
+        }
+    }
+
+    /// 设置任务状态
+    pub fn set_status(&mut self, status: crate::gateway::TransferStatus) {
+        self.status = status;
+    }
+
+    /// 设置错误信息
+    pub fn set_error(&mut self, error_message: String) {
+        self.status = crate::gateway::TransferStatus::Error(error_message.clone());
+        self.error_message = Some(error_message);
+    }
+}
+
 impl DiscoveredNodeInfo {
     /// 创建新的发现节点信息
     pub fn new(
@@ -161,6 +238,10 @@ pub struct NetworkManager {
     p2p_discovery_enabled: Arc<Mutex<bool>>,
     /// 发现任务句柄
     discovery_task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// 文件传输任务存储
+    transfer_tasks: Arc<RwLock<HashMap<String, FileTransferTaskInfo>>>,
+    /// 节点 ID 到连接地址的映射
+    node_connections: Arc<RwLock<HashMap<String, SocketAddr>>>,
 }
 
 impl NetworkManager {
@@ -194,6 +275,8 @@ impl NetworkManager {
             discovered_nodes: Arc::new(RwLock::new(HashMap::new())),
             p2p_discovery_enabled: Arc::new(Mutex::new(false)),
             discovery_task_handle: Arc::new(Mutex::new(None)),
+            transfer_tasks: Arc::new(RwLock::new(HashMap::new())),
+            node_connections: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -789,11 +872,62 @@ impl NetworkManager {
 
         log::info!("连接到节点 {node_id} ({addr})");
 
-        // 这里应该建立实际的连接
-        let mut connections = self.connections.lock().await;
-        connections.insert(addr, ConnectionState::new(addr));
+        // 检查是否已经连接到此节点
+        {
+            let node_connections = self.node_connections.read().await;
+            if node_connections.contains_key(node_id) {
+                return Err(anyhow::anyhow!("已经连接到节点 {}", node_id));
+            }
+        }
 
-        Ok(())
+        // 验证节点是否存在于发现的节点列表中
+        {
+            let discovered_nodes = self.discovered_nodes.read().await;
+            if !discovered_nodes.contains_key(node_id) {
+                return Err(anyhow::anyhow!("节点 {} 不在发现列表中", node_id));
+            }
+        }
+
+        // 尝试建立连接 (在实际实现中，这里会建立 QUIC 连接)
+        // 目前使用 UDP 连接模拟
+        let test_message = WdicMessage::new_discovery(
+            format!("gateway-{}", uuid::Uuid::new_v4()),
+            "WDIC Gateway".to_string(),
+            self.local_addr,
+        );
+        
+        if let Ok(serialized) = serde_json::to_vec(&test_message) {
+            match self.udp_socket.send_to(&serialized, addr) {
+                Ok(_) => {
+                    // 连接成功，存储连接信息
+                    let mut connections = self.connections.lock().await;
+                    connections.insert(addr, ConnectionState::new(addr));
+                    
+                    let mut node_connections = self.node_connections.write().await;
+                    node_connections.insert(node_id.to_string(), addr);
+                    
+                    // 更新发现节点状态
+                    let mut discovered_nodes = self.discovered_nodes.write().await;
+                    if let Some(node_info) = discovered_nodes.get_mut(node_id) {
+                        node_info.is_online = true;
+                        node_info.update_last_seen();
+                    }
+                    
+                    // 发送连接建立事件
+                    let _ = self.event_sender.send(NetworkEvent::ConnectionEstablished {
+                        remote_addr: addr,
+                    });
+                    
+                    log::info!("成功连接到节点 {node_id} ({addr})");
+                    Ok(())
+                }
+                Err(e) => {
+                    Err(anyhow::anyhow!("连接失败: {}", e))
+                }
+            }
+        } else {
+            Err(anyhow::anyhow!("无法序列化连接消息"))
+        }
     }
 
     /// 断开与节点的连接
@@ -808,9 +942,31 @@ impl NetworkManager {
     pub async fn disconnect_from_node(&self, node_id: &str) -> anyhow::Result<()> {
         log::info!("断开与节点 {node_id} 的连接");
 
-        // 这里应该根据 node_id 找到对应的连接并断开
-        // 目前简化实现
-        Ok(())
+        // 从节点连接映射中查找连接地址
+        let node_connections = self.node_connections.read().await;
+        if let Some(&addr) = node_connections.get(node_id) {
+            drop(node_connections); // 释放读锁
+            
+            // 断开实际连接
+            if self.disconnect(addr).await {
+                // 从节点连接映射中移除
+                let mut node_connections = self.node_connections.write().await;
+                node_connections.remove(node_id);
+                
+                // 更新发现节点状态
+                let mut discovered_nodes = self.discovered_nodes.write().await;
+                if let Some(node_info) = discovered_nodes.get_mut(node_id) {
+                    node_info.is_online = false;
+                }
+                
+                log::info!("成功断开与节点 {node_id} 的连接");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("无法断开与节点 {} 的连接", node_id))
+            }
+        } else {
+            Err(anyhow::anyhow!("未找到节点 {} 的连接", node_id))
+        }
     }
 
     /// 创建文件传输任务
@@ -834,8 +990,86 @@ impl NetworkManager {
             "创建文件传输任务 {task_id}: {source_path:?} -> {target_path:?}"
         );
 
-        // 这里应该创建实际的传输任务
+        // 验证源文件存在
+        if !source_path.exists() {
+            return Err(anyhow::anyhow!("源文件不存在: {:?}", source_path));
+        }
+
+        // 获取文件大小
+        let metadata = tokio::fs::metadata(&source_path).await
+            .map_err(|e| anyhow::anyhow!("无法获取文件元数据: {}", e))?;
+        
+        let total_bytes = metadata.len();
+
+        // 创建传输任务信息
+        let task_info = FileTransferTaskInfo::new(
+            task_id.clone(),
+            source_path,
+            target_path,
+            total_bytes,
+            None, // 本地传输，无目标节点
+        );
+
+        // 存储任务信息
+        {
+            let mut transfer_tasks = self.transfer_tasks.write().await;
+            transfer_tasks.insert(task_id.clone(), task_info);
+        }
+
+        // 启动实际的文件传输任务
+        let transfer_tasks = Arc::clone(&self.transfer_tasks);
+        let task_id_clone = task_id.clone();
+        
+        tokio::spawn(async move {
+            Self::execute_file_transfer(transfer_tasks, task_id_clone).await;
+        });
+
+        log::info!("文件传输任务 {task_id} 已创建并启动");
         Ok(())
+    }
+
+    /// 执行文件传输
+    ///
+    /// # 参数
+    ///
+    /// * `transfer_tasks` - 传输任务存储
+    /// * `task_id` - 任务 ID
+    async fn execute_file_transfer(
+        transfer_tasks: Arc<RwLock<HashMap<String, FileTransferTaskInfo>>>,
+        task_id: String,
+    ) {
+        // 获取任务信息
+        let (source_path, target_path) = {
+            let mut tasks = transfer_tasks.write().await;
+            if let Some(task_info) = tasks.get_mut(&task_id) {
+                task_info.set_status(crate::gateway::TransferStatus::Transferring);
+                (task_info.source_path.clone(), task_info.target_path.clone())
+            } else {
+                log::error!("未找到传输任务: {}", task_id);
+                return;
+            }
+        };
+
+        // 执行文件复制
+        let result = tokio::fs::copy(&source_path, &target_path).await;
+        
+        // 更新任务状态
+        {
+            let mut tasks = transfer_tasks.write().await;
+            if let Some(task_info) = tasks.get_mut(&task_id) {
+                match result {
+                    Ok(bytes_copied) => {
+                        task_info.transferred_bytes = bytes_copied;
+                        task_info.set_status(crate::gateway::TransferStatus::Completed);
+                        log::info!("文件传输任务 {} 完成，复制了 {} 字节", task_id, bytes_copied);
+                    }
+                    Err(e) => {
+                        task_info.set_error(format!("文件传输失败: {}", e));
+                        log::error!("文件传输任务 {} 失败: {}", task_id, e);
+                    }
+                }
+            }
+        }
     }
 
     /// 获取文件传输任务状态
@@ -851,22 +1085,24 @@ impl NetworkManager {
         &self,
         task_id: &str,
     ) -> anyhow::Result<crate::gateway::tauri_api::FileTransferTask> {
-        use chrono::Utc;
-        // 这里应该从实际存储中获取任务状态
-        // 目前返回示例数据
-        let task = crate::gateway::tauri_api::FileTransferTask {
-            id: task_id.to_string(),
-            source_path: std::path::PathBuf::from("/tmp/source.txt"),
-            target_path: std::path::PathBuf::from("/tmp/target.txt"),
-            status: crate::gateway::TransferStatus::Pending,
-            transferred_bytes: 0,
-            total_bytes: 1024,
-            transfer_speed: 0,
-            start_time: Utc::now(),
-            estimated_completion: None,
-        };
-
-        Ok(task)
+        let transfer_tasks = self.transfer_tasks.read().await;
+        
+        if let Some(task_info) = transfer_tasks.get(task_id) {
+            let tauri_task = crate::gateway::tauri_api::FileTransferTask {
+                id: task_info.task_id.clone(),
+                source_path: task_info.source_path.clone(),
+                target_path: task_info.target_path.clone(),
+                status: task_info.status.clone(),
+                transferred_bytes: task_info.transferred_bytes,
+                total_bytes: task_info.total_bytes,
+                transfer_speed: task_info.transfer_speed,
+                start_time: task_info.start_time,
+                estimated_completion: task_info.estimated_completion,
+            };
+            Ok(tauri_task)
+        } else {
+            Err(anyhow::anyhow!("未找到传输任务: {}", task_id))
+        }
     }
 
     /// 取消文件传输任务
@@ -881,8 +1117,30 @@ impl NetworkManager {
     pub async fn cancel_transfer(&self, task_id: &str) -> anyhow::Result<()> {
         log::info!("取消文件传输任务 {task_id}");
 
-        // 这里应该取消实际的传输任务
-        Ok(())
+        let mut transfer_tasks = self.transfer_tasks.write().await;
+        
+        if let Some(task_info) = transfer_tasks.get_mut(task_id) {
+            // 检查任务是否可以取消
+            match &task_info.status {
+                crate::gateway::TransferStatus::Pending 
+                | crate::gateway::TransferStatus::Transferring => {
+                    task_info.set_status(crate::gateway::TransferStatus::Cancelled);
+                    log::info!("文件传输任务 {task_id} 已取消");
+                    Ok(())
+                }
+                crate::gateway::TransferStatus::Completed => {
+                    Err(anyhow::anyhow!("任务已完成，无法取消"))
+                }
+                crate::gateway::TransferStatus::Error(_) => {
+                    Err(anyhow::anyhow!("任务已失败，无法取消"))
+                }
+                crate::gateway::TransferStatus::Cancelled => {
+                    Err(anyhow::anyhow!("任务已取消"))
+                }
+            }
+        } else {
+            Err(anyhow::anyhow!("未找到传输任务: {}", task_id))
+        }
     }
 
     /// 健康检查

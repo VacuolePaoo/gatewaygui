@@ -129,6 +129,8 @@ pub struct GlobalGatewayState {
     pub registry: Arc<Registry>,
     /// 事件发射器
     pub event_emitter: Option<EventEmitter>,
+    /// 数据传输请求存储
+    pub transfer_requests: Arc<RwLock<HashMap<String, DataTransferRequest>>>,
 }
 
 impl GlobalGatewayState {
@@ -153,6 +155,7 @@ impl GlobalGatewayState {
             network_manager,
             registry,
             event_emitter: None,
+            transfer_requests: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 }
@@ -737,6 +740,38 @@ pub async fn get_metadata_by_token(token_id: String) -> Result<Vec<std::collecti
     }
 }
 
+/// 数据传输请求信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataTransferRequest {
+    /// 请求 ID
+    pub transfer_id: String,
+    /// 源节点 ID
+    pub source_node_id: String,
+    /// 目标节点 ID (可选，本地传输时为空)
+    pub target_node_id: Option<String>,
+    /// 文件路径
+    pub file_path: PathBuf,
+    /// 文件大小
+    pub file_size: u64,
+    /// 请求时间
+    pub request_time: DateTime<Utc>,
+    /// 请求状态
+    pub status: DataTransferRequestStatus,
+}
+
+/// 数据传输请求状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DataTransferRequestStatus {
+    /// 待确认
+    Pending,
+    /// 已接受
+    Accepted,
+    /// 已拒绝
+    Rejected(String),
+    /// 已过期
+    Expired,
+}
+
 /// 确认数据传输请求
 #[command]
 pub async fn confirm_data_transfer(
@@ -747,21 +782,151 @@ pub async fn confirm_data_transfer(
     ensure_global_state().await?;
     
     let global_state = GLOBAL_STATE.lock().await;
-    let _state = global_state.as_ref().unwrap();
+    let state = global_state.as_ref().unwrap();
     
-    // 这里应该处理数据传输确认逻辑
-    // 目前只是记录日志
-    if accept {
-        log::info!("数据传输请求已接受: {transfer_id}");
+    // 查找传输请求
+    let mut transfer_requests = state.transfer_requests.write().await;
+    
+    if let Some(transfer_request) = transfer_requests.get_mut(&transfer_id) {
+        // 检查请求状态
+        match transfer_request.status {
+            DataTransferRequestStatus::Pending => {
+                if accept {
+                    transfer_request.status = DataTransferRequestStatus::Accepted;
+                    log::info!("数据传输请求已接受: {transfer_id}");
+                    
+                    // 发送接受事件到前端
+                    if let Some(ref event_emitter) = state.event_emitter {
+                        let event_data = serde_json::json!({
+                            "transfer_id": transfer_id,
+                            "status": "accepted",
+                            "timestamp": Utc::now().to_rfc3339()
+                        });
+                        let _ = event_emitter.emit_data_transfer_event(event_data);
+                    }
+                    
+                    // 创建实际的文件传输任务
+                    let task_result = state.network_manager.create_transfer_task(
+                        transfer_id.clone(),
+                        transfer_request.file_path.clone(),
+                        transfer_request.file_path.clone(), // 目标路径暂时与源路径相同
+                    ).await;
+                    
+                    if let Err(e) = task_result {
+                        log::error!("创建传输任务失败: {}", e);
+                        return Err(format!("创建传输任务失败: {}", e));
+                    }
+                } else {
+                    let reject_reason = reason.unwrap_or_else(|| "用户拒绝".to_string());
+                    transfer_request.status = DataTransferRequestStatus::Rejected(reject_reason.clone());
+                    log::info!("数据传输请求已拒绝: {transfer_id}, 原因: {reject_reason}");
+                    
+                    // 发送拒绝事件到前端
+                    if let Some(ref event_emitter) = state.event_emitter {
+                        let event_data = serde_json::json!({
+                            "transfer_id": transfer_id,
+                            "status": "rejected",
+                            "reason": reject_reason,
+                            "timestamp": Utc::now().to_rfc3339()
+                        });
+                        let _ = event_emitter.emit_data_transfer_event(event_data);
+                    }
+                }
+                Ok(())
+            }
+            DataTransferRequestStatus::Accepted => {
+                Err("传输请求已被接受".to_string())
+            }
+            DataTransferRequestStatus::Rejected(_) => {
+                Err("传输请求已被拒绝".to_string())
+            }
+            DataTransferRequestStatus::Expired => {
+                Err("传输请求已过期".to_string())
+            }
+        }
     } else {
-        let reason = reason.unwrap_or_else(|| "用户拒绝".to_string());
-        log::info!("数据传输请求已拒绝: {transfer_id}, 原因: {reason}");
-        
-        // 发送403错误码给对端
-        // TODO: 实现实际的拒绝逻辑
+        Err(format!("未找到传输请求: {}", transfer_id))
+    }
+}
+
+/// 创建数据传输请求
+#[command]
+pub async fn create_data_transfer_request(
+    source_node_id: String,
+    target_node_id: Option<String>,
+    file_path: PathBuf,
+    file_size: u64,
+) -> Result<String, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let transfer_id = Uuid::new_v4().to_string();
+    
+    let transfer_request = DataTransferRequest {
+        transfer_id: transfer_id.clone(),
+        source_node_id,
+        target_node_id,
+        file_path,
+        file_size,
+        request_time: Utc::now(),
+        status: DataTransferRequestStatus::Pending,
+    };
+    
+    // 存储传输请求
+    {
+        let mut transfer_requests = state.transfer_requests.write().await;
+        transfer_requests.insert(transfer_id.clone(), transfer_request);
     }
     
-    Ok(())
+    // 发送新传输请求事件到前端
+    if let Some(ref event_emitter) = state.event_emitter {
+        let event_data = serde_json::json!({
+            "transfer_id": transfer_id,
+            "status": "pending",
+            "timestamp": Utc::now().to_rfc3339()
+        });
+        let _ = event_emitter.emit_data_transfer_event(event_data);
+    }
+    
+    log::info!("创建数据传输请求: {transfer_id}");
+    Ok(transfer_id)
+}
+
+/// 获取待处理的数据传输请求列表
+#[command]
+pub async fn get_pending_transfer_requests() -> Result<Vec<DataTransferRequest>, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let transfer_requests = state.transfer_requests.read().await;
+    let pending_requests: Vec<DataTransferRequest> = transfer_requests
+        .values()
+        .filter(|request| matches!(request.status, DataTransferRequestStatus::Pending))
+        .cloned()
+        .collect();
+    
+    Ok(pending_requests)
+}
+
+/// 获取数据传输请求详情
+#[command]
+pub async fn get_transfer_request_details(transfer_id: String) -> Result<DataTransferRequest, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let transfer_requests = state.transfer_requests.read().await;
+    
+    if let Some(request) = transfer_requests.get(&transfer_id) {
+        Ok(request.clone())
+    } else {
+        Err(format!("未找到传输请求: {}", transfer_id))
+    }
 }
 
 /// 创建文件传输任务
@@ -1417,6 +1582,14 @@ pub fn get_all_commands() -> Vec<&'static str> {
         "unmount_directory",
         "get_mount_points",
         "list_directory",
+        "create_search_token",
+        "validate_search_token",
+        "authorize_file",
+        "get_metadata_by_token",
+        "confirm_data_transfer",
+        "create_data_transfer_request",
+        "get_pending_transfer_requests",
+        "get_transfer_request_details",
         "create_file_transfer",
         "get_transfer_status",
         "cancel_transfer",
@@ -1518,10 +1691,17 @@ mod tests {
         let state = create_test_state().await;
         *GLOBAL_STATE.lock().await = Some(state);
         
-        // 测试挂载目录（使用临时目录）
-        let temp_dir = std::env::temp_dir();
+        // 启动网关以便进行目录操作
+        let config = GatewayConfig::default();
+        start_gateway(config).await.unwrap();
+        
+        // 创建一个专用的测试目录
+        let test_dir = std::env::temp_dir().join("test_mount_dir");
+        tokio::fs::create_dir_all(&test_dir).await.unwrap();
+        
+        // 测试挂载目录
         let mount_id = mount_directory(
-            temp_dir,
+            test_dir.clone(),
             "测试挂载".to_string(),
             true,
         ).await.unwrap();
@@ -1534,6 +1714,12 @@ mod tests {
         
         // 测试卸载目录
         unmount_directory(mount_id).await.unwrap();
+        
+        // 停止网关
+        stop_gateway().await.unwrap();
+        
+        // 清理测试目录
+        let _ = tokio::fs::remove_dir_all(&test_dir).await;
     }
 
     #[tokio::test]
@@ -1616,20 +1802,27 @@ mod tests {
         let source = std::env::temp_dir().join("test_source.txt");
         let target = std::env::temp_dir().join("test_target.txt");
         
+        // 创建测试源文件
+        tokio::fs::write(&source, "测试文件内容").await.unwrap();
+        
         // 测试创建文件传输任务
         let task_id = create_file_transfer(
-            source,
+            source.clone(),
             target,
         ).await.unwrap();
         
         assert!(!task_id.is_empty());
         
         // 测试获取传输状态
-        let _status = get_transfer_status(task_id.clone()).await;
-        // 在模拟实现中，这可能会失败，但在真实实现中应该成功
+        let status = get_transfer_status(task_id.clone()).await.unwrap();
+        assert_eq!(status.id, task_id);
+        assert_eq!(status.source_path, source);
         
         // 测试取消传输
-        let _cancel_result = cancel_transfer(task_id).await;
-        // 同样，在模拟实现中可能会失败
+        let cancel_result = cancel_transfer(task_id).await;
+        assert!(cancel_result.is_ok());
+        
+        // 清理测试文件
+        let _ = tokio::fs::remove_file(&source).await;
     }
 }
