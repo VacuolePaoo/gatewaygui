@@ -932,7 +932,7 @@ impl NetworkManager {
         config.set_initial_max_streams_bidi(100);
         config.set_disable_active_migration(true);
         
-        // 启用 TLS 验证（移除简化实现）
+        // 启用 TLS 验证
         config.verify_peer(true);
         
         // 设置 TLS 参数

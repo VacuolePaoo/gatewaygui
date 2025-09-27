@@ -82,11 +82,14 @@ impl SearchToken {
                     // 匹配所有
                     true
                 } else {
-                    // 中间包含 * 的复杂模式，使用简化匹配
-                    // 这里可以扩展为更复杂的 glob 匹配
+                    // 支持 glob 模式匹配
+                    // 当前支持简单的前缀、后缀和基本通配符
                     let parts: Vec<&str> = pattern.split('*').collect();
                     if parts.len() == 2 {
                         path.starts_with(parts[0]) && path.ends_with(parts[1])
+                    } else if parts.len() > 2 {
+                        // 多个通配符的复杂匹配
+                        self.complex_glob_match(path, &parts)
                     } else {
                         false
                     }
@@ -521,6 +524,42 @@ impl MountManager {
 
         visit_dir(path, &mut file_count, &mut total_size)?;
         Ok((file_count, total_size))
+    }
+
+    /// 复杂 glob 模式匹配
+    fn complex_glob_match(&self, path: &str, parts: &[&str]) -> bool {
+        if parts.is_empty() {
+            return false;
+        }
+        
+        let mut current_pos = 0;
+        
+        // 检查每个部分是否按顺序匹配
+        for (i, part) in parts.iter().enumerate() {
+            if part.is_empty() {
+                continue;
+            }
+            
+            if i == 0 {
+                // 第一部分必须在开头匹配
+                if !path[current_pos..].starts_with(part) {
+                    return false;
+                }
+                current_pos += part.len();
+            } else if i == parts.len() - 1 {
+                // 最后一部分必须在结尾匹配
+                return path[current_pos..].ends_with(part);
+            } else {
+                // 中间部分需要在剩余字符串中找到
+                if let Some(pos) = path[current_pos..].find(part) {
+                    current_pos += pos + part.len();
+                } else {
+                    return false;
+                }
+            }
+        }
+        
+        true
     }
 
     /// 文件路径安全处理方法

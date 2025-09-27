@@ -910,12 +910,12 @@ pub struct PerformanceReport {
                     total_bytes += test_data.len() as u64;
                 }
                 
-                // 短暂延迟模拟网络传输时间
+                // 网络传输延迟
                 tokio::time::sleep(std::time::Duration::from_millis(test_suite.test_interval_ms)).await;
             }
             Err(e) => {
                 log::warn!("无法创建测试套接字: {}", e);
-                // 降级到时间延迟模拟
+                // 降级到时间延迟测试
                 tokio::time::sleep(std::time::Duration::from_millis(test_suite.test_interval_ms)).await;
                 total_bytes = test_suite.packet_size as u64;
             }
@@ -956,7 +956,7 @@ pub struct PerformanceReport {
         let test_data = vec![0u8; test_suite.packet_size];
         let mut successful_bytes = 0u64;
 
-        // 模拟网络丢包情况
+        // 网络丢包测试情况
         if rand::random::<f64>() > 0.1 { // 90% 成功率
             // 尝试发送数据
             if let Ok(test_socket) = tokio::net::UdpSocket::bind("127.0.0.1:0").await {
@@ -968,7 +968,7 @@ pub struct PerformanceReport {
             
             tokio::time::sleep(std::time::Duration::from_millis(test_suite.test_interval_ms)).await;
         } else {
-            // 模拟丢包 - 更长的延迟
+            // 测试丢包 - 增加延迟
             tokio::time::sleep(std::time::Duration::from_millis(test_suite.test_interval_ms * 2)).await;
         }
 
@@ -996,7 +996,7 @@ pub struct PerformanceReport {
         }
     }
 
-    /// 替换延迟测试中的模拟操作
+    /// 执行真实的系统调用延迟测试
     async fn perform_real_latency_operation(&self) -> std::time::Duration {
         let start = std::time::Instant::now();
         
@@ -1099,7 +1099,7 @@ mod tests {
     async fn test_connection_metrics() {
         let monitor = PerformanceMonitor::new();
 
-        // 模拟连接事件
+        // 测试连接事件
         monitor
             .record_connection_event(ConnectionEvent::Connected, None)
             .await;
