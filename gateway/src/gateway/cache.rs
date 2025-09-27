@@ -213,6 +213,12 @@ pub struct GatewayCache {
     max_cache_size: u64,
     /// 当前缓存大小（字节）
     current_cache_size: u64,
+    /// 统计数据：缓存命中次数
+    hit_count: u64,
+    /// 统计数据：缓存未命中次数
+    miss_count: u64,
+    /// 统计数据：总访问次数
+    total_access_count: u64,
 }
 
 impl GatewayCache {
@@ -244,6 +250,9 @@ impl GatewayCache {
             default_ttl,
             max_cache_size,
             current_cache_size: 0,
+            hit_count: 0,
+            miss_count: 0,
+            total_access_count: 0,
         };
 
         // 加载现有缓存
@@ -381,16 +390,20 @@ impl GatewayCache {
     ///
     /// 解压缩后的文件数据和元数据
     pub fn get_cached_file(&mut self, file_hash: &str) -> Result<Option<(Vec<u8>, CacheMetadata)>> {
+        self.total_access_count += 1;
+        
         if let Some(cache_entry) = self.cache_index.get_mut(file_hash) {
             // 检查是否过期
             if cache_entry.metadata.is_expired() {
                 debug!("缓存文件已过期: {file_hash}");
                 self.remove_cache_entry(file_hash)?;
+                self.miss_count += 1;
                 return Ok(None);
             }
 
             // 记录访问
             cache_entry.record_access();
+            self.hit_count += 1;
 
             // 读取缓存文件
             let mut cache_file =
@@ -423,6 +436,7 @@ impl GatewayCache {
             Ok(Some((decompressed_data, metadata)))
         } else {
             debug!("缓存未命中: {file_hash}");
+            self.miss_count += 1;
             Ok(None)
         }
     }
@@ -453,20 +467,17 @@ impl GatewayCache {
     pub async fn get_stats(&self) -> crate::gateway::tauri_api::CacheStats {
         let total_entries = self.cache_index.len();
         
-        // 这里应该从实际的统计数据获取命中率等信息
-        // 目前使用模拟数据
-        let hit_count = 100u64;
-        let miss_count = 20u64;
-        let hit_rate = if hit_count + miss_count > 0 {
-            hit_count as f64 / (hit_count + miss_count) as f64
+        // 使用实际的统计数据
+        let hit_rate = if self.total_access_count > 0 {
+            self.hit_count as f64 / self.total_access_count as f64
         } else {
             0.0
         };
 
         crate::gateway::tauri_api::CacheStats {
             item_count: total_entries,
-            hit_count,
-            miss_count,
+            hit_count: self.hit_count,
+            miss_count: self.miss_count,
             hit_rate,
             memory_usage: self.current_cache_size as usize,
             max_capacity: self.max_cache_size as usize,

@@ -39,6 +39,12 @@ import { functionName } from '@/lib/gatewayApi'
 - [createFileTransfer](#createfiletransfer) - 创建文件传输任务
 - [getTransferStatus](#gettransferstatus) - 获取文件传输任务状态
 - [cancelTransfer](#canceltransfer) - 取消文件传输任务
+- [getAllTransfers](#getalltransfers) - 获取所有活跃传输任务
+- [cleanupCompletedTransfers](#cleanupcompletedtransfers) - 清理已完成的传输任务
+- [createDataTransferRequest](#createdatatransferrequest) - 创建数据传输请求
+- [getPendingTransferRequests](#getpendingtransferrequests) - 获取待处理传输请求
+- [getTransferRequestDetails](#gettransferrequestdetails) - 获取传输请求详情
+- [confirmDataTransfer](#confirmdatatransfer) - 确认数据传输请求
 
 ### 网络通信接口
 
@@ -48,6 +54,7 @@ import { functionName } from '@/lib/gatewayApi'
 - [getDiscoveredNodes](#getdiscoverednodes) - 获取已发现的节点列表
 - [connectToNode](#connecttonode) - 连接到指定节点
 - [disconnectFromNode](#disconnectfromnode) - 断开与节点的连接
+- [getNetworkStats](#getnetworkstats) - 获取网络连接统计信息
 
 ### 性能监控接口
 
@@ -1424,6 +1431,105 @@ interface ActiveSession {
   bytes_transferred: number
   status: string
 }
+```
+
+### DataTransferRequest
+
+```typescript
+interface DataTransferRequest {
+  transfer_id: string
+  source_node_id: string
+  target_node_id: string | null
+  file_path: string
+  file_size: number
+  request_time: string
+  status: 'Pending' | 'Accepted' | 'Rejected' | 'Expired'
+}
+```
+
+### NetworkStats
+
+```typescript
+interface NetworkStats {
+  active_connections: number
+  discovered_nodes: number
+  p2p_discovery_enabled: boolean
+  active_transfers: number
+  local_address: string
+}
+```
+
+## 新增API详细说明
+
+### getAllTransfers
+
+获取所有活跃的文件传输任务
+
+```typescript
+const transfers = await getAllTransfers()
+console.log('活跃传输任务:', transfers)
+```
+
+### cleanupCompletedTransfers
+
+清理已完成的文件传输任务
+
+```typescript
+const cleanedCount = await cleanupCompletedTransfers()
+console.log(`清理了 ${cleanedCount} 个传输任务`)
+```
+
+### createDataTransferRequest
+
+创建数据传输请求
+
+```typescript
+const transferId = await createDataTransferRequest(
+  'source-node-123',
+  'target-node-456',
+  '/path/to/file.txt',
+  1024
+)
+console.log('传输请求ID:', transferId)
+```
+
+### getPendingTransferRequests
+
+获取待处理的传输请求列表
+
+```typescript
+const pendingRequests = await getPendingTransferRequests()
+console.log('待处理请求:', pendingRequests)
+```
+
+### getTransferRequestDetails
+
+获取传输请求详情
+
+```typescript
+const details = await getTransferRequestDetails(transferId)
+console.log('请求详情:', details)
+```
+
+### confirmDataTransfer
+
+确认数据传输请求
+
+```typescript
+// 接受传输
+await confirmDataTransfer(transferId, true)
+
+// 拒绝传输
+await confirmDataTransfer(transferId, false, '文件已存在')
+```
+
+### getNetworkStats
+
+获取网络连接统计信息
+
+```typescript
+const stats = await getNetworkStats()
+console.log('网络统计:', stats)
 ```
 
 ## 错误处理

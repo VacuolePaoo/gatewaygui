@@ -28,6 +28,7 @@
 pub mod cache;
 pub mod compression;
 pub mod gateway;
+pub mod mount;
 pub mod network;
 pub mod performance;
 pub mod protocol;
@@ -44,6 +45,7 @@ pub use compression::{
     CompressionStatsSnapshot,
 };
 pub use gateway::{Gateway, GatewayConfig};
+pub use mount::{MountManager, SearchToken, FileAuthorization};
 pub use network::NetworkManager;
 pub use performance::{
     BenchmarkResult, PerformanceMonitor, PerformanceReport, PerformanceTestSuite,
