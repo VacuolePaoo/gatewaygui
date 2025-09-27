@@ -1189,11 +1189,30 @@ impl Gateway {
         // 验证配置
         new_config.validate()?;
 
-        // 这里应该更新内部配置
-        // 目前简化实现，只记录日志
-        info!("网关配置已更新: {:?}", new_config.name);
+        // 更新内部配置
+        info!("正在更新网关配置: {}", new_config.name);
+        
+        // 检查配置变化是否需要重启服务
+        let needs_restart = self.config_requires_restart(&new_config).await;
+        
+        // 更新配置
+        self.config = new_config.clone();
+        
+        if needs_restart {
+            warn!("配置更改需要重启服务才能生效");
+        }
+        
+        info!("网关配置更新完成: {}", new_config.name);
         
         Ok(())
+    }
+
+    /// 检查配置更改是否需要重启服务
+    async fn config_requires_restart(&self, new_config: &GatewayConfig) -> bool {
+        // 检查关键配置是否变化
+        self.config.port != new_config.port ||
+        self.config.enable_tls != new_config.enable_tls ||
+        self.config.max_connections != new_config.max_connections
     }
 
     /// 启动文件传输任务

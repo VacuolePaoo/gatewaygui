@@ -690,4 +690,75 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_professional_certificate_generation() -> anyhow::Result<()> {
+        let temp_dir = tempdir()?;
+        let config = MtlsConfig {
+            ca_cert_path: temp_dir.path().join("ca.crt"),
+            server_cert_path: temp_dir.path().join("server.crt"),
+            server_key_path: temp_dir.path().join("server.key"),
+            client_cert_path: temp_dir.path().join("client.crt"),
+            client_key_path: temp_dir.path().join("client.key"),
+            ..Default::default()
+        };
+
+        let mut manager = TlsManager::new(config)?;
+        
+        // 测试专业证书生成
+        manager.generate_self_signed_certificates()?;
+
+        // 验证证书文件是否生成
+        assert!(temp_dir.path().join("ca.crt").exists());
+        assert!(temp_dir.path().join("server.crt").exists());
+        assert!(temp_dir.path().join("client.crt").exists());
+
+        // 验证私钥文件是否生成
+        assert!(temp_dir.path().join("ca.key").exists());
+        assert!(temp_dir.path().join("server.key").exists());
+        assert!(temp_dir.path().join("client.key").exists());
+
+        println!("✓ 专业级证书生成测试通过");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_certificate_loading_and_verification() -> anyhow::Result<()> {
+        let temp_dir = tempdir()?;
+        let config = MtlsConfig {
+            ca_cert_path: temp_dir.path().join("ca.crt"),
+            server_cert_path: temp_dir.path().join("server.crt"),
+            server_key_path: temp_dir.path().join("server.key"),
+            client_cert_path: temp_dir.path().join("client.crt"),
+            client_key_path: temp_dir.path().join("client.key"),
+            ..Default::default()
+        };
+
+        let mut manager = TlsManager::new(config)?;
+        
+        // 生成证书
+        manager.generate_self_signed_certificates()?;
+        
+        // 初始化（加载证书）
+        manager.initialize().await?;
+
+        // 测试证书缓存
+        let (cert_count, key_count, has_ca) = manager.get_certificate_stats();
+        assert!(cert_count > 0);
+        assert!(key_count > 0);
+        assert!(has_ca);
+
+        // 测试获取证书数据
+        assert!(manager.get_certificate("ca").is_some());
+        assert!(manager.get_certificate("server").is_some());
+        assert!(manager.get_certificate("client").is_some());
+
+        // 测试获取私钥数据
+        assert!(manager.get_private_key("ca").is_some());
+        assert!(manager.get_private_key("server").is_some());
+        assert!(manager.get_private_key("client").is_some());
+
+        println!("✓ 证书加载和验证测试通过");
+        Ok(())
+    }
 }
