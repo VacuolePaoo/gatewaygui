@@ -4,7 +4,7 @@
 //! 性能优化版本：使用 AHashMap 和 SmallVec 提升性能。
 //! 增强版本：支持 TLS 1.3 mTLS、zstd 压缩、缓存系统和 IPv6/IPv4 双栈。
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -514,6 +514,10 @@ impl Gateway {
                 debug!("连接断开: {remote_addr}");
                 // 清理相关的注册表条目
                 self.cleanup_connection_entry(remote_addr).await?;
+            }
+            NetworkEvent::ConnectionFailed { remote_addr, error } => {
+                warn!("连接失败: {} - {}", remote_addr, error);
+                // 记录连接失败但不需要清理
             }
             NetworkEvent::BroadcastSent { message } => {
                 debug!("广播消息发送完成: {}", message.message_type());
@@ -1185,7 +1189,7 @@ impl Gateway {
     /// # 返回值
     ///
     /// 操作结果
-    pub async fn update_config(&self, new_config: GatewayConfig) -> Result<()> {
+    pub async fn update_config(&mut self, new_config: GatewayConfig) -> Result<()> {
         // 验证配置
         new_config.validate()?;
 
@@ -1211,8 +1215,8 @@ impl Gateway {
     async fn config_requires_restart(&self, new_config: &GatewayConfig) -> bool {
         // 检查关键配置是否变化
         self.config.port != new_config.port ||
-        self.config.enable_tls != new_config.enable_tls ||
-        self.config.max_connections != new_config.max_connections
+        self.config.enable_mtls != new_config.enable_mtls ||
+        self.config.enable_ipv6 != new_config.enable_ipv6
     }
 
     /// 启动文件传输任务

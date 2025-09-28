@@ -1601,7 +1601,6 @@ async fn get_in_memory_logs(max_lines: u32, level_filter: &str) -> Result<Vec<Lo
     
     Ok(filtered_entries)
 }
-}
 
 /// 日志条目
 #[derive(Debug, Clone, Serialize, Deserialize)]

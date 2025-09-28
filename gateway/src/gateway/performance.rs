@@ -166,7 +166,12 @@ pub struct PerformanceTestSuite {
     pub packet_size: usize,
     /// 测试间隔（毫秒）
     pub test_interval_ms: u64,
+    /// 测试类型
+    pub test_type: String,
 }
+
+/// 基准测试套件 - 性能测试套件的别名
+pub type BenchmarkTestSuite = PerformanceTestSuite;
 
 impl Default for PerformanceTestSuite {
     fn default() -> Self {
@@ -175,6 +180,7 @@ impl Default for PerformanceTestSuite {
             duration_seconds: 30,
             packet_size: 1024,
             test_interval_ms: 10,
+            test_type: "throughput".to_string(),
         }
     }
 }
@@ -824,53 +830,6 @@ impl PerformanceMonitor {
             Err(anyhow::anyhow!("基准测试不存在: {}", benchmark_id))
         }
     }
-}
-
-/// 连接事件类型
-#[derive(Debug, Clone)]
-pub enum ConnectionEvent {
-    /// 连接成功
-    Connected,
-    /// 连接断开
-    Disconnected,
-    /// 连接失败
-    Failed,
-    /// 连接超时
-    Timeout,
-}
-
-/// 完整的性能报告 - 性能优化版本
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PerformanceReport {
-    /// 网络指标
-    pub network: NetworkMetrics,
-    /// 内存指标
-    pub memory: MemoryMetrics,
-    /// 延迟指标
-    pub latency: LatencyMetrics,
-    /// 连接指标
-    pub connection: ConnectionMetrics,
-    /// 基准测试结果 - 使用 AHashMap 提升性能
-    pub benchmarks: AHashMap<String, BenchmarkResult>,
-    /// 报告生成时间
-    pub generated_at: chrono::DateTime<chrono::Utc>,
-    /// 当前连接数
-    pub current_connections: u64,
-    /// 总请求数
-    pub total_requests: u64,
-    /// 错误次数
-    pub error_count: u64,
-    /// 正在运行的基准测试 ID 列表
-    pub running_benchmarks: Vec<String>,
-    /// 系统启动时间
-    pub uptime_seconds: u64,
-    /// CPU 使用率（百分比）
-    pub cpu_usage_percent: f64,
-    /// 网络吞吐量（字节/秒）
-    pub network_throughput_bps: f64,
-    /// 平均延迟（毫秒）
-    pub average_latency_ms: f64,
-}
 
     /// 执行真实的网络性能测试
     ///
@@ -1013,6 +972,53 @@ pub struct PerformanceReport {
             }
         }
     }
+}
+
+/// 连接事件类型
+#[derive(Debug, Clone)]
+pub enum ConnectionEvent {
+    /// 连接成功
+    Connected,
+    /// 连接断开
+    Disconnected,
+    /// 连接失败
+    Failed,
+    /// 连接超时
+    Timeout,
+}
+
+/// 完整的性能报告 - 性能优化版本
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceReport {
+    /// 网络指标
+    pub network: NetworkMetrics,
+    /// 内存指标
+    pub memory: MemoryMetrics,
+    /// 延迟指标
+    pub latency: LatencyMetrics,
+    /// 连接指标
+    pub connection: ConnectionMetrics,
+    /// 基准测试结果 - 使用 AHashMap 提升性能
+    pub benchmarks: AHashMap<String, BenchmarkResult>,
+    /// 报告生成时间
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+    /// 当前连接数
+    pub current_connections: u64,
+    /// 总请求数
+    pub total_requests: u64,
+    /// 错误次数
+    pub error_count: u64,
+    /// 正在运行的基准测试 ID 列表
+    pub running_benchmarks: Vec<String>,
+    /// 系统启动时间
+    pub uptime_seconds: u64,
+    /// CPU 使用率（百分比）
+    pub cpu_usage_percent: f64,
+    /// 网络吞吐量（字节/秒）
+    pub network_throughput_bps: f64,
+    /// 平均延迟（毫秒）
+    pub average_latency_ms: f64,
+}
 
 #[cfg(test)]
 mod tests {
@@ -1069,6 +1075,7 @@ mod tests {
             duration_seconds: 1,
             packet_size: 100,
             test_interval_ms: 10,
+            test_type: "throughput".to_string(),
         };
 
         let result = monitor

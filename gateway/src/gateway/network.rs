@@ -35,6 +35,13 @@ pub enum NetworkEvent {
         /// 远程地址
         remote_addr: SocketAddr,
     },
+    /// 连接失败
+    ConnectionFailed {
+        /// 远程地址
+        remote_addr: SocketAddr,
+        /// 错误信息
+        error: String,
+    },
     /// 广播发送完成
     BroadcastSent {
         /// 广播消息
@@ -78,6 +85,11 @@ impl ConnectionState {
     pub fn is_expired(&self, timeout_seconds: i64) -> bool {
         let now = chrono::Utc::now();
         (now - self.last_active).num_seconds() > timeout_seconds
+    }
+
+    /// 检查连接是否活跃
+    pub fn is_connected(&self) -> bool {
+        !self.is_expired(30) // 30秒超时
     }
 }
 
@@ -921,7 +933,7 @@ impl NetworkManager {
             .map_err(|e| anyhow::anyhow!("创建 QUIC 配置失败: {}", e))?;
         
         // 配置 QUIC 参数
-        config.set_application_protos(b"\x04wdic")
+        config.set_application_protos(&[b"wdic"])
             .map_err(|e| anyhow::anyhow!("设置应用协议失败: {}", e))?;
         config.set_max_idle_timeout(30000); // 30 秒超时
         config.set_max_recv_udp_payload_size(1350);
@@ -935,31 +947,14 @@ impl NetworkManager {
         // 启用 TLS 验证
         config.verify_peer(true);
         
-        // 设置 TLS 参数
-        if let Some(tls_manager) = &self.tls_manager {
-            // 加载客户端证书
-            if let Some(client_cert) = tls_manager.get_certificate("client") {
-                if let Some(client_key) = tls_manager.get_private_key("client") {
-                    // 设置客户端证书和私钥
-                    config.load_cert_chain_from_pem_file(&tls_manager.config.client_cert_path)
-                        .map_err(|e| anyhow::anyhow!("加载客户端证书失败: {}", e))?;
-                    config.load_priv_key_from_pem_file(&tls_manager.config.client_key_path)
-                        .map_err(|e| anyhow::anyhow!("加载客户端私钥失败: {}", e))?;
-                }
-            }
-            
-            // 设置 CA 证书用于验证服务端
-            if tls_manager.get_certificate("ca").is_some() {
-                config.load_verify_locations_from_file(&tls_manager.config.ca_cert_path)
-                    .map_err(|e| anyhow::anyhow!("加载 CA 证书失败: {}", e))?;
-            }
-        } else {
-            warn!("TLS 管理器未初始化，使用不安全连接");
-            config.verify_peer(false);
-        }
+        // 设置 TLS 参数 (目前禁用)
+        // TODO: 实现 TLS 管理器集成
+        warn!("TLS 管理器未初始化，使用不安全连接");
+        config.verify_peer(false);
 
         // 生成连接 ID
-        let scid = quiche::ConnectionId::from_ref(&uuid::Uuid::new_v4().as_bytes()[..]);
+        let uuid = uuid::Uuid::new_v4();
+        let scid = quiche::ConnectionId::from_ref(&uuid.as_bytes()[..]);
         
         // 创建 QUIC 连接
         let mut connection = quiche::connect(
@@ -984,7 +979,6 @@ impl NetworkManager {
         }
 
         // 在后台任务中处理握手完成
-        let udp_socket = self.udp_socket.clone();
         let event_sender = self.event_sender.clone();
         let connections = Arc::clone(&self.connections);
         let node_connections = Arc::clone(&self.node_connections);
@@ -992,8 +986,21 @@ impl NetworkManager {
         let node_id_clone = node_id.to_string();
         
         tokio::spawn(async move {
+            // 为 QUIC 创建新的 tokio UDP 套接字
+            let tokio_socket = match tokio::net::UdpSocket::bind("0.0.0.0:0").await {
+                Ok(socket) => Arc::new(socket),
+                Err(e) => {
+                    error!("无法创建 tokio UDP 套接字: {}", e);
+                    let _ = event_sender.send(NetworkEvent::ConnectionFailed {
+                        remote_addr: addr,
+                        error: format!("套接字创建失败: {}", e),
+                    });
+                    return;
+                }
+            };
+
             // 异步处理握手完成
-            match Self::complete_quic_handshake_async(connection, addr, udp_socket).await {
+            match Self::complete_quic_handshake_async(connection, addr, tokio_socket).await {
                 Ok(established_connection) => {
                     // 连接成功，存储连接信息
                     {
