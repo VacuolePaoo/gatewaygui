@@ -504,7 +504,7 @@ impl PerformanceMonitor {
         let start_memory = self.memory_metrics.read().await.current_usage;
 
         for _ in 0..iterations {
-            let op_start = Instant::now();
+            let _op_start = Instant::now();
 
             // 执行真实的延迟操作测试
             let actual_duration = self.perform_real_latency_operation().await;
@@ -884,7 +884,7 @@ impl PerformanceMonitor {
     }
 
     /// 执行延迟测试
-    async fn perform_latency_test(&self, test_suite: &BenchmarkTestSuite) -> Result<u64> {
+    async fn perform_latency_test(&self, _test_suite: &BenchmarkTestSuite) -> Result<u64> {
         let start = std::time::Instant::now();
         
         // 创建小数据包进行延迟测试
@@ -937,7 +937,7 @@ impl PerformanceMonitor {
     /// 执行基本网络测试
     async fn perform_basic_network_test(&self, test_suite: &BenchmarkTestSuite) -> Result<u64> {
         // 基本网络健康检查
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
         
         // 尝试创建UDP套接字来验证网络栈
         match tokio::net::UdpSocket::bind("127.0.0.1:0").await {

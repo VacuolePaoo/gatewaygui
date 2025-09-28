@@ -1001,7 +1001,7 @@ impl NetworkManager {
 
             // 异步处理握手完成
             match Self::complete_quic_handshake_async(connection, addr, tokio_socket).await {
-                Ok(established_connection) => {
+                Ok(_established_connection) => {
                     // 连接成功，存储连接信息
                     {
                         let mut connections_guard = connections.lock().await;

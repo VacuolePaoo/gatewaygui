@@ -990,7 +990,7 @@ pub async fn get_all_transfers() -> Result<Vec<FileTransferTask>, String> {
     let transfer_tasks = state.network_manager.transfer_tasks.read().await;
     let mut all_transfers = Vec::new();
     
-    for (task_id, task_info) in transfer_tasks.iter() {
+    for (_task_id, task_info) in transfer_tasks.iter() {
         let tauri_task = FileTransferTask {
             id: task_info.task_id.clone(),
             source_path: task_info.source_path.clone(),
@@ -1410,7 +1410,6 @@ pub async fn get_service_logs(
 ) -> Result<Vec<LogEntry>, String> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
-    use std::path::PathBuf;
     
     let max_lines = lines.unwrap_or(100);
     let level_filter = level.unwrap_or_else(|| "INFO".to_string());
@@ -1470,7 +1469,8 @@ fn get_log_file_path() -> PathBuf {
         log::warn!("无法创建日志目录: {}", e);
     }
     
-    log_dir.push("gateway.log")
+    log_dir.push("gateway.log");
+    log_dir
 }
 
 /// 解析日志行
