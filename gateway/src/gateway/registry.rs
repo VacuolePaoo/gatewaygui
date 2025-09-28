@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -64,6 +65,8 @@ pub struct Registry {
     entries: Arc<DashMap<Uuid, RegistryEntry>>,
     /// 本网关的信息
     local_entry: Arc<AtomicRefCell<RegistryEntry>>,
+    /// 存储挂载点信息 (lock-free)
+    mount_points: Arc<DashMap<String, MountPoint>>,
 }
 
 impl Clone for Registry {
@@ -71,6 +74,7 @@ impl Clone for Registry {
         Self {
             entries: Arc::clone(&self.entries),
             local_entry: Arc::clone(&self.local_entry),
+            mount_points: Arc::clone(&self.mount_points),
         }
     }
 }
@@ -93,6 +97,7 @@ impl Registry {
                 local_name,
                 local_address,
             ))),
+            mount_points: Arc::new(DashMap::new()),
         }
     }
 
@@ -254,32 +259,6 @@ impl Registry {
     ///
     /// # 返回值
     ///
-    /// 操作结果
-    pub async fn register_mount_point(
-        &self,
-        _mount_id: String,
-        local_path: std::path::PathBuf,
-        mount_name: String,
-        read_only: bool,
-    ) -> anyhow::Result<()> {
-        // 验证路径存在且是目录
-        if !local_path.exists() {
-            return Err(anyhow::anyhow!("路径不存在: {:?}", local_path));
-        }
-
-        if !local_path.is_dir() {
-            return Err(anyhow::anyhow!("不是目录: {:?}", local_path));
-        }
-
-        // 这里可以添加实际的挂载点注册逻辑
-        // 目前只是简单的验证
-        log::info!(
-            "注册挂载点: {mount_name} -> {local_path:?} (只读: {read_only})"
-        );
-
-        Ok(())
-    }
-
     /// 取消注册挂载点
     ///
     /// # 参数
@@ -290,8 +269,27 @@ impl Registry {
     ///
     /// 操作结果
     pub async fn unregister_mount_point(&self, mount_id: &str) -> anyhow::Result<()> {
-        // 这里可以添加实际的挂载点取消注册逻辑
-        log::info!("取消注册挂载点: {mount_id}");
+        if let Some(_) = self.mount_points.remove(mount_id) {
+            log::info!("成功取消注册挂载点: {mount_id}");
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("挂载点不存在: {mount_id}"))
+        }
+    }
+
+    /// 注册挂载点
+    ///
+    /// # 参数
+    ///
+    /// * `mount_point` - 挂载点信息
+    ///
+    /// # 返回值
+    ///
+    /// 操作结果
+    pub async fn register_mount_point(&self, mount_point: MountPoint) -> anyhow::Result<()> {
+        let mount_id = mount_point.id.clone();
+        self.mount_points.insert(mount_id.clone(), mount_point);
+        log::info!("成功注册挂载点: {mount_id}");
         Ok(())
     }
 
@@ -301,22 +299,11 @@ impl Registry {
     ///
     /// 挂载点列表
     pub async fn get_mount_points(&self) -> anyhow::Result<Vec<MountPoint>> {
-        use chrono::Utc;
-        use uuid::Uuid;
-
-        // 这里应该从实际存储中获取挂载点
-        // 目前返回示例数据
-        let mount_points = vec![
-            MountPoint {
-                id: Uuid::new_v4().to_string(),
-                local_path: std::path::PathBuf::from("/tmp"),
-                mount_name: "临时目录".to_string(),
-                read_only: false,
-                mount_time: Utc::now(),
-                file_count: 0,
-                total_size: 0,
-            },
-        ];
+        let mount_points: Vec<MountPoint> = self
+            .mount_points
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
 
         Ok(mount_points)
     }
@@ -333,15 +320,30 @@ impl Registry {
     /// 目录条目列表
     pub async fn list_directory(
         &self,
-        _mount_id: &str,
+        mount_id: &str,
         path: &str,
     ) -> anyhow::Result<Vec<TauriDirectoryEntry>> {
         use std::fs;
         use chrono::{DateTime, Utc};
 
-        // 这里应该根据 mount_id 找到实际的挂载点
-        // 目前简化实现
-        let target_path = std::path::PathBuf::from(path);
+        // 根据 mount_id 找到实际的挂载点
+        let mount_point = self.mount_points.get(mount_id)
+            .ok_or_else(|| anyhow::anyhow!("挂载点不存在: {mount_id}"))?;
+
+        // 构建完整路径：挂载点路径 + 相对路径
+        let mut target_path = mount_point.local_path.clone();
+        if !path.is_empty() && path != "/" {
+            target_path.push(path.trim_start_matches('/'));
+        }
+
+        // 安全检查：确保路径在挂载点范围内
+        let canonical_mount = std::fs::canonicalize(&mount_point.local_path)?;
+        let canonical_target = std::fs::canonicalize(&target_path)
+            .or_else(|_| Ok::<PathBuf, std::io::Error>(target_path.clone()))?;
+        
+        if !canonical_target.starts_with(&canonical_mount) {
+            return Err(anyhow::anyhow!("访问被拒绝：路径超出挂载点范围"));
+        }
 
         if !target_path.exists() {
             return Err(anyhow::anyhow!("路径不存在: {:?}", target_path));
@@ -387,7 +389,7 @@ impl Registry {
                         "file".to_string()
                     }
                 } else {
-                    "other".to_string()
+                    "unknown".to_string()
                 },
             });
         }

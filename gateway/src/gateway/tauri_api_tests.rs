@@ -5,7 +5,6 @@
 #![cfg(test)]
 
 use crate::gateway::tauri_api::*;
-use tokio;
 
 /// 创建测试用的全局状态
 async fn create_test_global_state() -> GlobalGatewayState {
@@ -128,7 +127,6 @@ pub fn generate_api_documentation() -> String {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-    use uuid::Uuid;
     
     use crate::gateway::tauri_api::*;
     use crate::gateway::tauri_api_tests::create_test_global_state;
@@ -157,6 +155,9 @@ mod tests {
         assert!(is_valid);
         println!("✓ 配置管理API测试通过");
 
+        // 3.1. 启动网关以便测试需要网关运行的功能
+        start_gateway(default_config).await.unwrap();
+
         // 4. 测试性能监控API
         let _perf_report = get_performance_report().await.unwrap();
         // uptime_seconds 是 u64 类型，总是 >= 0，所以不需要检查
@@ -178,7 +179,31 @@ mod tests {
         // 7. 测试缓存统计API
         let cache_stats = get_cache_stats().await.unwrap();
         assert!(cache_stats.hit_rate >= 0.0);
-        println!("✓ 缓存统计API测试通过");
+        // 7. 测试文件传输API
+        let temp_source = tempfile::NamedTempFile::new().unwrap();
+        let temp_target = tempfile::NamedTempFile::new().unwrap();
+        let source_path = temp_source.path().to_path_buf();
+        let target_path = temp_target.path().to_path_buf();
+        
+        // 写入测试数据
+        std::fs::write(&source_path, "测试数据").unwrap();
+        
+        let transfer_id = create_file_transfer(source_path, target_path).await.unwrap();
+        let transfer_status = get_transfer_status(transfer_id.clone()).await.unwrap();
+        assert_eq!(transfer_status.id, transfer_id);
+        
+        // 测试获取所有传输
+        let all_transfers = get_all_transfers().await.unwrap();
+        assert!(all_transfers.iter().any(|t| t.id == transfer_id));
+        
+        // 等待传输完成或取消
+        cancel_transfer(transfer_id).await.unwrap();
+        
+        // 测试清理已完成的传输
+        let cleaned_count = cleanup_completed_transfers().await.unwrap();
+        println!("清理了 {} 个已完成的传输任务", cleaned_count);
+        
+        println!("✓ 文件传输API测试通过");
 
         // 8. 测试目录操作API
         let temp_dir = tempdir().unwrap();
@@ -201,10 +226,23 @@ mod tests {
         stop_p2p_discovery().await.unwrap();
         println!("✓ P2P发现API测试通过");
 
+        // 9.1. 测试网络统计和管理API
+        let network_stats = get_network_stats().await.unwrap();
+        assert!(!network_stats.local_address.is_empty());
+        println!("网络统计 - 活跃连接: {}, 发现节点: {}", 
+                network_stats.active_connections, network_stats.discovered_nodes);
+
+        // 测试网络服务重启
+        restart_network_service().await.unwrap();
+        println!("✓ 网络管理API测试通过");
+
         // 10. 测试日志API
         let logs = get_service_logs(Some(10), None).await.unwrap();
         assert!(logs.len() <= 10);
         println!("✓ 日志API测试通过");
+
+        // 清理：停止网关
+        stop_gateway().await.unwrap();
 
         println!("🎉 所有 Tauri API 测试通过！");
     }

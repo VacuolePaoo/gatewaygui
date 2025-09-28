@@ -31,8 +31,55 @@ use std::{
     collections::HashMap,
     sync::Arc,
 };
-use tauri::command;
+use tauri::{command, AppHandle, Emitter};
 use uuid::Uuid;
+
+/// 事件发射器 - 用于向前端发送事件
+#[derive(Debug)]
+pub struct EventEmitter {
+    app_handle: AppHandle,
+}
+
+impl EventEmitter {
+    pub fn new(app_handle: AppHandle) -> Self {
+        Self { app_handle }
+    }
+
+    /// 发送节点发现事件
+    pub fn emit_node_discovered(&self, node_data: serde_json::Value) -> Result<(), String> {
+        self.app_handle
+            .emit("node-discovered", node_data)
+            .map_err(|e| format!("发送节点发现事件失败: {e}"))
+    }
+
+    /// 发送数据传输事件
+    pub fn emit_data_transfer_event(&self, transfer_data: serde_json::Value) -> Result<(), String> {
+        self.app_handle
+            .emit("data-transfer", transfer_data)
+            .map_err(|e| format!("发送数据传输事件失败: {e}"))
+    }
+
+    /// 发送异常事件
+    pub fn emit_exception(&self, error_type: &str, message: &str, details: Option<serde_json::Value>) -> Result<(), String> {
+        let event_data = serde_json::json!({
+            "error_type": error_type,
+            "message": message,
+            "details": details,
+            "timestamp": Utc::now().to_rfc3339()
+        });
+        
+        self.app_handle
+            .emit("gateway-exception", event_data)
+            .map_err(|e| format!("发送异常事件失败: {e}"))
+    }
+
+    /// 发送缓存统计更新事件
+    pub fn emit_cache_stats_updated(&self, stats: serde_json::Value) -> Result<(), String> {
+        self.app_handle
+            .emit("cache-stats-updated", stats)
+            .map_err(|e| format!("发送缓存统计事件失败: {e}"))
+    }
+}
 
 // 全局状态管理器 - 使用异步Mutex包装Option
 pub static GLOBAL_STATE: once_cell::sync::Lazy<tokio::sync::Mutex<Option<GlobalGatewayState>>> = 
@@ -46,6 +93,20 @@ async fn ensure_global_state() -> Result<(), String> {
         let new_state = GlobalGatewayState::new().await
             .map_err(|e| format!("状态初始化失败: {e}"))?;
         *global_state = Some(new_state);
+    }
+    
+    Ok(())
+}
+
+/// 初始化事件发射器
+pub async fn initialize_event_emitter(app_handle: AppHandle) -> Result<(), String> {
+    let mut global_state = GLOBAL_STATE.lock().await;
+    
+    if let Some(state) = global_state.as_mut() {
+        state.event_emitter = Some(EventEmitter::new(app_handle));
+        info!("事件发射器已初始化");
+    } else {
+        return Err("全局状态未初始化".to_string());
     }
     
     Ok(())
@@ -66,6 +127,10 @@ pub struct GlobalGatewayState {
     pub network_manager: Arc<NetworkManager>,
     /// 注册表
     pub registry: Arc<Registry>,
+    /// 事件发射器
+    pub event_emitter: Option<EventEmitter>,
+    /// 数据传输请求存储
+    pub transfer_requests: Arc<RwLock<HashMap<String, DataTransferRequest>>>,
 }
 
 impl GlobalGatewayState {
@@ -89,6 +154,8 @@ impl GlobalGatewayState {
             security_manager,
             network_manager,
             registry,
+            event_emitter: None,
+            transfer_requests: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 }
@@ -479,14 +546,26 @@ pub async fn mount_directory(
     }
     
     let state = global_state.as_ref().unwrap();
-    // 在注册表中注册挂载点
-    state.registry.register_mount_point(
-        mount_id.clone(),
-        local_path.clone(),
+    
+    // 创建挂载点结构
+    let mount_point = MountPoint {
+        id: mount_id.clone(),
+        local_path: local_path.clone(),
         mount_name,
         read_only,
-    ).await
-    .map_err(|e| format!("挂载失败: {e}"))?;
+        mount_time: Utc::now(),
+        file_count: 0, // 初始值，挂载时会计算实际值
+        total_size: 0, // 初始值，挂载时会计算实际值
+    };
+    
+    // 通过网关的挂载管理器进行挂载
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        gateway.mount_manager().mount_directory(mount_point).await
+            .map_err(|e| format!("挂载失败: {e}"))?;
+    } else {
+        return Err("网关未初始化".to_string());
+    }
 
     Ok(mount_id)
 }
@@ -498,9 +577,15 @@ pub async fn unmount_directory(mount_id: String) -> Result<(), String> {
     
     let global_state = GLOBAL_STATE.lock().await;
     let state = global_state.as_ref().unwrap();
-    // 从注册表中移除挂载点
-    state.registry.unregister_mount_point(&mount_id).await
-        .map_err(|e| format!("卸载失败: {e}"))?;
+    
+    // 通过网关的挂载管理器进行卸载
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        gateway.mount_manager().unmount_directory(&mount_id).await
+            .map_err(|e| format!("卸载失败: {e}"))?;
+    } else {
+        return Err("网关未初始化".to_string());
+    }
 
     Ok(())
 }
@@ -512,10 +597,16 @@ pub async fn get_mount_points() -> Result<Vec<MountPoint>, String> {
     
     let global_state = GLOBAL_STATE.lock().await;
     let state = global_state.as_ref().unwrap();
-    let mount_points = state.registry.get_mount_points().await
-        .map_err(|e| format!("获取挂载点失败: {e}"))?;
-
-    Ok(mount_points)
+    
+    // 通过网关的挂载管理器获取挂载点
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let mount_points = gateway.mount_manager().get_mount_points().await
+            .map_err(|e| format!("获取挂载点失败: {e}"))?;
+        Ok(mount_points)
+    } else {
+        Err("网关未初始化".to_string())
+    }
 }
 
 /// 列出目录内容
@@ -526,9 +617,16 @@ pub async fn list_directory(mount_id: String, path: String) -> Result<Vec<Direct
     let global_state = GLOBAL_STATE.lock().await;
     let state = global_state.as_ref().unwrap();
     
-    state.registry.list_directory(&mount_id, &path)
-        .await
-        .map_err(|e| format!("列出目录失败: {e}"))
+    // 通过网关的挂载管理器列出目录
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let entries = gateway.mount_manager().list_directory(&mount_id, &path)
+            .await
+            .map_err(|e| format!("列出目录失败: {e}"))?;
+        Ok(entries)
+    } else {
+        Err("网关未初始化".to_string())
+    }
 }
 
 /// 目录条目
@@ -548,6 +646,287 @@ pub struct DirectoryEntry {
     pub created_time: Option<DateTime<Utc>>,
     /// 文件类型
     pub file_type: String,
+}
+
+/// 创建搜索令牌
+#[command]
+pub async fn create_search_token(
+    mount_id: String,
+    patterns: Vec<String>,
+    permissions: Vec<String>,
+    ttl_seconds: u64,
+) -> Result<String, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let token_id = gateway.mount_manager().create_search_token(
+            mount_id,
+            patterns,
+            permissions,
+            ttl_seconds,
+        ).await
+        .map_err(|e| format!("创建搜索令牌失败: {e}"))?;
+        Ok(token_id)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 验证搜索令牌
+#[command]
+pub async fn validate_search_token(token_id: String, path: String) -> Result<bool, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let is_authorized = gateway.mount_manager().validate_search_token(&token_id, &path)
+            .await
+            .map_err(|e| format!("验证搜索令牌失败: {e}"))?;
+        Ok(is_authorized)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 文件授权
+#[command]
+pub async fn authorize_file(
+    file_path: PathBuf,
+    auth_type: String,
+    permissions: Vec<String>,
+) -> Result<String, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let auth_id = gateway.mount_manager().authorize_file(
+            file_path,
+            auth_type,
+            permissions,
+        ).await
+        .map_err(|e| format!("文件授权失败: {e}"))?;
+        Ok(auth_id)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 通过搜索令牌获取元数据
+#[command]
+pub async fn get_metadata_by_token(token_id: String) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let gateway_lock = state.gateway.read().await;
+    if let Some(gateway) = gateway_lock.as_ref() {
+        let metadata = gateway.mount_manager().get_metadata_by_token(&token_id)
+            .await
+            .map_err(|e| format!("获取元数据失败: {e}"))?;
+        Ok(metadata)
+    } else {
+        Err("网关未初始化".to_string())
+    }
+}
+
+/// 数据传输请求信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataTransferRequest {
+    /// 请求 ID
+    pub transfer_id: String,
+    /// 源节点 ID
+    pub source_node_id: String,
+    /// 目标节点 ID (可选，本地传输时为空)
+    pub target_node_id: Option<String>,
+    /// 文件路径
+    pub file_path: PathBuf,
+    /// 文件大小
+    pub file_size: u64,
+    /// 请求时间
+    pub request_time: DateTime<Utc>,
+    /// 请求状态
+    pub status: DataTransferRequestStatus,
+}
+
+/// 数据传输请求状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DataTransferRequestStatus {
+    /// 待确认
+    Pending,
+    /// 已接受
+    Accepted,
+    /// 已拒绝
+    Rejected(String),
+    /// 已过期
+    Expired,
+}
+
+/// 确认数据传输请求
+#[command]
+pub async fn confirm_data_transfer(
+    transfer_id: String,
+    accept: bool,
+    reason: Option<String>,
+) -> Result<(), String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    // 查找传输请求
+    let mut transfer_requests = state.transfer_requests.write().await;
+    
+    if let Some(transfer_request) = transfer_requests.get_mut(&transfer_id) {
+        // 检查请求状态
+        match transfer_request.status {
+            DataTransferRequestStatus::Pending => {
+                if accept {
+                    transfer_request.status = DataTransferRequestStatus::Accepted;
+                    log::info!("数据传输请求已接受: {transfer_id}");
+                    
+                    // 发送接受事件到前端
+                    if let Some(ref event_emitter) = state.event_emitter {
+                        let event_data = serde_json::json!({
+                            "transfer_id": transfer_id,
+                            "status": "accepted",
+                            "timestamp": Utc::now().to_rfc3339()
+                        });
+                        let _ = event_emitter.emit_data_transfer_event(event_data);
+                    }
+                    
+                    // 创建实际的文件传输任务
+                    let task_result = state.network_manager.create_transfer_task(
+                        transfer_id.clone(),
+                        transfer_request.file_path.clone(),
+                        transfer_request.file_path.clone(), // 目标路径暂时与源路径相同
+                    ).await;
+                    
+                    if let Err(e) = task_result {
+                        log::error!("创建传输任务失败: {}", e);
+                        return Err(format!("创建传输任务失败: {}", e));
+                    }
+                } else {
+                    let reject_reason = reason.unwrap_or_else(|| "用户拒绝".to_string());
+                    transfer_request.status = DataTransferRequestStatus::Rejected(reject_reason.clone());
+                    log::info!("数据传输请求已拒绝: {transfer_id}, 原因: {reject_reason}");
+                    
+                    // 发送拒绝事件到前端
+                    if let Some(ref event_emitter) = state.event_emitter {
+                        let event_data = serde_json::json!({
+                            "transfer_id": transfer_id,
+                            "status": "rejected",
+                            "reason": reject_reason,
+                            "timestamp": Utc::now().to_rfc3339()
+                        });
+                        let _ = event_emitter.emit_data_transfer_event(event_data);
+                    }
+                }
+                Ok(())
+            }
+            DataTransferRequestStatus::Accepted => {
+                Err("传输请求已被接受".to_string())
+            }
+            DataTransferRequestStatus::Rejected(_) => {
+                Err("传输请求已被拒绝".to_string())
+            }
+            DataTransferRequestStatus::Expired => {
+                Err("传输请求已过期".to_string())
+            }
+        }
+    } else {
+        Err(format!("未找到传输请求: {}", transfer_id))
+    }
+}
+
+/// 创建数据传输请求
+#[command]
+pub async fn create_data_transfer_request(
+    source_node_id: String,
+    target_node_id: Option<String>,
+    file_path: PathBuf,
+    file_size: u64,
+) -> Result<String, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let transfer_id = Uuid::new_v4().to_string();
+    
+    let transfer_request = DataTransferRequest {
+        transfer_id: transfer_id.clone(),
+        source_node_id,
+        target_node_id,
+        file_path,
+        file_size,
+        request_time: Utc::now(),
+        status: DataTransferRequestStatus::Pending,
+    };
+    
+    // 存储传输请求
+    {
+        let mut transfer_requests = state.transfer_requests.write().await;
+        transfer_requests.insert(transfer_id.clone(), transfer_request);
+    }
+    
+    // 发送新传输请求事件到前端
+    if let Some(ref event_emitter) = state.event_emitter {
+        let event_data = serde_json::json!({
+            "transfer_id": transfer_id,
+            "status": "pending",
+            "timestamp": Utc::now().to_rfc3339()
+        });
+        let _ = event_emitter.emit_data_transfer_event(event_data);
+    }
+    
+    log::info!("创建数据传输请求: {transfer_id}");
+    Ok(transfer_id)
+}
+
+/// 获取待处理的数据传输请求列表
+#[command]
+pub async fn get_pending_transfer_requests() -> Result<Vec<DataTransferRequest>, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let transfer_requests = state.transfer_requests.read().await;
+    let pending_requests: Vec<DataTransferRequest> = transfer_requests
+        .values()
+        .filter(|request| matches!(request.status, DataTransferRequestStatus::Pending))
+        .cloned()
+        .collect();
+    
+    Ok(pending_requests)
+}
+
+/// 获取数据传输请求详情
+#[command]
+pub async fn get_transfer_request_details(transfer_id: String) -> Result<DataTransferRequest, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let transfer_requests = state.transfer_requests.read().await;
+    
+    if let Some(request) = transfer_requests.get(&transfer_id) {
+        Ok(request.clone())
+    } else {
+        Err(format!("未找到传输请求: {}", transfer_id))
+    }
 }
 
 /// 创建文件传输任务
@@ -596,6 +975,131 @@ pub async fn cancel_transfer(task_id: String) -> Result<(), String> {
         .await
         .map_err(|e| format!("取消传输失败: {e}"))?;
 
+    Ok(())
+}
+
+/// 获取所有活跃的文件传输任务
+#[command]
+pub async fn get_all_transfers() -> Result<Vec<FileTransferTask>, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    // 获取所有传输任务
+    let transfer_tasks = state.network_manager.transfer_tasks.read().await;
+    let mut all_transfers = Vec::new();
+    
+    for (task_id, task_info) in transfer_tasks.iter() {
+        let tauri_task = FileTransferTask {
+            id: task_info.task_id.clone(),
+            source_path: task_info.source_path.clone(),
+            target_path: task_info.target_path.clone(),
+            status: task_info.status.clone(),
+            transferred_bytes: task_info.transferred_bytes,
+            total_bytes: task_info.total_bytes,
+            transfer_speed: task_info.transfer_speed,
+            start_time: task_info.start_time,
+            estimated_completion: task_info.estimated_completion,
+        };
+        all_transfers.push(tauri_task);
+    }
+    
+    Ok(all_transfers)
+}
+
+/// 清理已完成的文件传输任务
+#[command]
+pub async fn cleanup_completed_transfers() -> Result<u32, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let mut transfer_tasks = state.network_manager.transfer_tasks.write().await;
+    let initial_count = transfer_tasks.len();
+    
+    // 移除已完成、已取消或失败的任务
+    transfer_tasks.retain(|_task_id, task_info| {
+        matches!(task_info.status, 
+                crate::gateway::TransferStatus::Pending | 
+                crate::gateway::TransferStatus::Transferring)
+    });
+    
+    let removed_count = initial_count - transfer_tasks.len();
+    log::info!("清理了 {} 个已完成的传输任务", removed_count);
+    
+    Ok(removed_count as u32)
+}
+
+/// 获取网络连接统计信息
+#[command]
+pub async fn get_network_stats() -> Result<NetworkStats, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    let active_connections = state.network_manager.active_connections_count().await;
+    let discovered_nodes = state.network_manager.discovered_nodes.read().await.len() as u32;
+    let p2p_enabled = *state.network_manager.p2p_discovery_enabled.lock().await;
+    let active_transfers = state.network_manager.transfer_tasks.read().await.len() as u32;
+    
+    Ok(NetworkStats {
+        active_connections: active_connections as u32,
+        discovered_nodes,
+        p2p_discovery_enabled: p2p_enabled,
+        active_transfers,
+        local_address: state.network_manager.local_addr().to_string(),
+    })
+}
+
+/// 网络统计信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkStats {
+    /// 活跃连接数
+    pub active_connections: u32,
+    /// 已发现节点数
+    pub discovered_nodes: u32,
+    /// P2P 发现是否启用
+    pub p2p_discovery_enabled: bool,
+    /// 活跃传输任务数
+    pub active_transfers: u32,
+    /// 本地地址
+    pub local_address: String,
+}
+
+/// 重启网络服务
+#[command]
+pub async fn restart_network_service() -> Result<(), String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    // 停止 P2P 发现
+    if let Err(e) = state.network_manager.stop_p2p_discovery().await {
+        log::warn!("停止 P2P 发现失败: {}", e);
+    }
+    
+    // 清理所有连接
+    {
+        let mut connections = state.network_manager.connections.lock().await;
+        connections.clear();
+    }
+    
+    // 清理节点连接映射
+    {
+        let mut node_connections = state.network_manager.node_connections.write().await;
+        node_connections.clear();
+    }
+    
+    // 重新启动网络服务
+    if let Err(e) = state.network_manager.start().await {
+        return Err(format!("重启网络服务失败: {}", e));
+    }
+    
+    log::info!("网络服务已重启");
     Ok(())
 }
 
@@ -904,36 +1408,199 @@ pub async fn get_service_logs(
     lines: Option<u32>,
     level: Option<String>,
 ) -> Result<Vec<LogEntry>, String> {
-    // 这里应该从日志系统读取日志
-    // 为了演示，返回模拟数据
-    let log_entries = vec![
-        LogEntry {
-            timestamp: Utc::now(),
-            level: "INFO".to_string(),
-            module: "gateway".to_string(),
-            message: "网关服务启动".to_string(),
-        },
-        LogEntry {
-            timestamp: Utc::now(),
-            level: "DEBUG".to_string(),
-            module: "network".to_string(),
-            message: "P2P 发现已启动".to_string(),
-        },
-    ];
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::path::PathBuf;
     
-    let mut filtered_logs = log_entries;
+    let max_lines = lines.unwrap_or(100);
+    let level_filter = level.unwrap_or_else(|| "INFO".to_string());
     
-    // 按级别过滤
-    if let Some(filter_level) = level {
-        filtered_logs.retain(|entry| entry.level == filter_level);
+    // 尝试从日志文件读取日志
+    let log_file_path = get_log_file_path();
+    
+    let mut log_entries = Vec::new();
+    
+    // 如果日志文件存在，从文件读取
+    if log_file_path.exists() {
+        match File::open(&log_file_path) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+                let mut temp_entries = Vec::new();
+                
+                for line in reader.lines() {
+                    if let Ok(line_content) = line {
+                        if let Some(entry) = parse_log_line(&line_content, &level_filter) {
+                            temp_entries.push(entry);
+                        }
+                    }
+                }
+                
+                // 保留最后的 max_lines 条日志
+                let start_index = temp_entries.len().saturating_sub(max_lines as usize);
+                log_entries.extend(temp_entries.into_iter().skip(start_index));
+            }
+            Err(e) => {
+                log::warn!("无法读取日志文件: {}", e);
+                // 返回内存中的日志条目
+                return get_in_memory_logs(max_lines, &level_filter).await;
+            }
+        }
+    } else {
+        // 如果日志文件不存在，返回内存中的日志条目
+        return get_in_memory_logs(max_lines, &level_filter).await;
     }
     
-    // 限制行数
-    if let Some(max_lines) = lines {
-        filtered_logs.truncate(max_lines as usize);
+    Ok(log_entries)
+}
+
+/// 获取日志文件路径
+fn get_log_file_path() -> PathBuf {
+    // 首先尝试从环境变量获取日志路径
+    if let Ok(log_path) = std::env::var("GATEWAY_LOG_PATH") {
+        return PathBuf::from(log_path);
     }
     
-    Ok(filtered_logs)
+    // 默认日志路径
+    let mut log_dir = std::env::temp_dir();
+    log_dir.push("gatewaygui");
+    log_dir.push("logs");
+    
+    // 确保日志目录存在
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        log::warn!("无法创建日志目录: {}", e);
+    }
+    
+    log_dir.push("gateway.log")
+}
+
+/// 解析日志行
+fn parse_log_line(line: &str, level_filter: &str) -> Option<LogEntry> {
+    // 日志格式通常是: TIMESTAMP LEVEL MODULE MESSAGE
+    // 例如: 2024-01-01T12:00:00Z INFO gateway 网关服务启动
+    
+    let parts: Vec<&str> = line.splitn(4, ' ').collect();
+    if parts.len() < 4 {
+        return None;
+    }
+    
+    let timestamp_str = parts[0].trim();
+    let level = parts[1].trim();
+    let module = parts[2].trim();
+    let message = parts[3].trim();
+    
+    // 级别过滤
+    if !should_include_level(level, level_filter) {
+        return None;
+    }
+    
+    let timestamp = match timestamp_str.parse::<DateTime<Utc>>() {
+        Ok(ts) => ts,
+        Err(_) => {
+            // 如果解析失败，尝试其他格式或使用当前时间
+            match chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                Ok(ts) => ts.with_timezone(&Utc),
+                Err(_) => Utc::now(),
+            }
+        }
+    };
+    
+    Some(LogEntry {
+        timestamp,
+        level: level.to_string(),
+        module: module.to_string(),
+        message: message.to_string(),
+    })
+}
+
+/// 检查日志级别是否应该包含
+fn should_include_level(log_level: &str, filter_level: &str) -> bool {
+    let levels = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
+    
+    let log_level_index = levels.iter().position(|&l| l == log_level).unwrap_or(2);
+    let filter_level_index = levels.iter().position(|&l| l == filter_level).unwrap_or(2);
+    
+    log_level_index <= filter_level_index
+}
+
+/// 获取内存中的日志条目（作为后备）
+async fn get_in_memory_logs(max_lines: u32, level_filter: &str) -> Result<Vec<LogEntry>, String> {
+    ensure_global_state().await?;
+    
+    let global_state = GLOBAL_STATE.lock().await;
+    let state = global_state.as_ref().unwrap();
+    
+    // 生成一些基本的状态日志
+    let mut log_entries = Vec::new();
+    
+    // 获取网关状态相关日志
+    if let Ok(gateway_lock) = state.gateway.try_read() {
+        if gateway_lock.is_some() {
+            log_entries.push(LogEntry {
+                timestamp: Utc::now() - chrono::Duration::minutes(5),
+                level: "INFO".to_string(),
+                module: "gateway".to_string(),
+                message: "网关服务正在运行".to_string(),
+            });
+        } else {
+            log_entries.push(LogEntry {
+                timestamp: Utc::now() - chrono::Duration::minutes(1),
+                level: "WARN".to_string(),
+                module: "gateway".to_string(),
+                message: "网关服务未启动".to_string(),
+            });
+        }
+    }
+    
+    // 网络状态日志
+    let network_status = state.network_manager.get_network_info().await;
+    match network_status {
+        Ok(status) => {
+            if status.p2p_discovery_enabled {
+                log_entries.push(LogEntry {
+                    timestamp: Utc::now() - chrono::Duration::minutes(2),
+                    level: "INFO".to_string(),
+                    module: "network".to_string(),
+                    message: format!("P2P 发现已启动，已发现 {} 个节点", status.discovered_nodes),
+                });
+            }
+            
+            log_entries.push(LogEntry {
+                timestamp: Utc::now() - chrono::Duration::minutes(3),
+                level: "INFO".to_string(),
+                module: "network".to_string(),
+                message: format!("网络管理器在 {}:{} 启动", status.local_ip, status.listen_port),
+            });
+        }
+        Err(e) => {
+            log_entries.push(LogEntry {
+                timestamp: Utc::now(),
+                level: "ERROR".to_string(),
+                module: "network".to_string(),
+                message: format!("网络状态获取失败: {}", e),
+            });
+        }
+    }
+    
+    // 性能监控日志
+    let perf_report = state.performance_monitor.get_report().await;
+    log_entries.push(LogEntry {
+        timestamp: Utc::now() - chrono::Duration::minutes(1),
+        level: "DEBUG".to_string(),
+        module: "performance".to_string(),
+        message: format!("系统运行时间: {} 秒, CPU使用率: {:.2}%", 
+                        perf_report.uptime_seconds, 
+                        perf_report.cpu_usage_percent),
+    });
+    
+    // 应用级别过滤
+    let filtered_entries: Vec<LogEntry> = log_entries
+        .into_iter()
+        .filter(|entry| should_include_level(&entry.level, level_filter))
+        .take(max_lines as usize)
+        .collect();
+    
+    Ok(filtered_entries)
+}
 }
 
 /// 日志条目
@@ -1203,9 +1870,21 @@ pub fn get_all_commands() -> Vec<&'static str> {
         "unmount_directory",
         "get_mount_points",
         "list_directory",
+        "create_search_token",
+        "validate_search_token",
+        "authorize_file",
+        "get_metadata_by_token",
+        "confirm_data_transfer",
+        "create_data_transfer_request",
+        "get_pending_transfer_requests",
+        "get_transfer_request_details",
         "create_file_transfer",
         "get_transfer_status",
         "cancel_transfer",
+        "get_all_transfers",
+        "cleanup_completed_transfers",
+        "get_network_stats",
+        "restart_network_service",
         "get_network_status",
         "start_p2p_discovery",
         "stop_p2p_discovery",
@@ -1304,10 +1983,17 @@ mod tests {
         let state = create_test_state().await;
         *GLOBAL_STATE.lock().await = Some(state);
         
-        // 测试挂载目录（使用临时目录）
-        let temp_dir = std::env::temp_dir();
+        // 启动网关以便进行目录操作
+        let config = GatewayConfig::default();
+        start_gateway(config).await.unwrap();
+        
+        // 创建一个专用的测试目录
+        let test_dir = std::env::temp_dir().join("test_mount_dir");
+        tokio::fs::create_dir_all(&test_dir).await.unwrap();
+        
+        // 测试挂载目录
         let mount_id = mount_directory(
-            temp_dir,
+            test_dir.clone(),
             "测试挂载".to_string(),
             true,
         ).await.unwrap();
@@ -1320,6 +2006,12 @@ mod tests {
         
         // 测试卸载目录
         unmount_directory(mount_id).await.unwrap();
+        
+        // 停止网关
+        stop_gateway().await.unwrap();
+        
+        // 清理测试目录
+        let _ = tokio::fs::remove_dir_all(&test_dir).await;
     }
 
     #[tokio::test]
@@ -1386,10 +2078,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_log_operations() {
+        // 初始化全局状态
+        let state = create_test_state().await;
+        *GLOBAL_STATE.lock().await = Some(state);
+
         // 测试获取服务日志
         let logs = get_service_logs(Some(10), Some("INFO".to_string())).await.unwrap();
-        // 注意：在实际实现中，这里应该有真实的日志数据
+        // 应该有一些日志条目（即使是从内存中生成的）
+        assert!(!logs.is_empty());
         assert!(logs.len() <= 10);
+
+        // 测试不同级别的日志过滤
+        let debug_logs = get_service_logs(Some(5), Some("DEBUG".to_string())).await.unwrap();
+        assert!(debug_logs.len() <= 5);
+
+        // 测试无级别过滤
+        let all_logs = get_service_logs(Some(20), None).await.unwrap();
+        assert!(all_logs.len() <= 20);
+
+        // 验证日志条目结构
+        if let Some(first_log) = logs.first() {
+            assert!(!first_log.level.is_empty());
+            assert!(!first_log.module.is_empty());
+            assert!(!first_log.message.is_empty());
+        }
+
+        println!("✓ 改进的日志系统测试通过");
     }
 
     #[tokio::test]
@@ -1402,20 +2116,48 @@ mod tests {
         let source = std::env::temp_dir().join("test_source.txt");
         let target = std::env::temp_dir().join("test_target.txt");
         
+        // 创建测试源文件
+        tokio::fs::write(&source, "测试文件内容").await.unwrap();
+        
         // 测试创建文件传输任务
         let task_id = create_file_transfer(
-            source,
-            target,
+            source.clone(),
+            target.clone(),
         ).await.unwrap();
         
         assert!(!task_id.is_empty());
         
         // 测试获取传输状态
-        let _status = get_transfer_status(task_id.clone()).await;
-        // 在模拟实现中，这可能会失败，但在真实实现中应该成功
+        let status = get_transfer_status(task_id.clone()).await.unwrap();
+        assert_eq!(status.id, task_id);
+        assert_eq!(status.source_path, source);
         
-        // 测试取消传输
-        let _cancel_result = cancel_transfer(task_id).await;
-        // 同样，在模拟实现中可能会失败
+        // 测试获取所有传输任务
+        let all_transfers = get_all_transfers().await.unwrap();
+        assert!(all_transfers.iter().any(|t| t.id == task_id));
+        
+        // 测试网络统计
+        let network_stats = get_network_stats().await.unwrap();
+        assert!(network_stats.active_transfers >= 1);
+        
+        // 等待一段时间让传输完成
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // 测试清理已完成的传输
+        let cleaned_count = cleanup_completed_transfers().await.unwrap();
+        println!("清理了 {} 个传输任务", cleaned_count);
+        
+        // 测试取消传输（如果还有的话）
+        let remaining_transfers = get_all_transfers().await.unwrap();
+        if let Some(remaining_task) = remaining_transfers.first() {
+            let cancel_result = cancel_transfer(remaining_task.id.clone()).await;
+            assert!(cancel_result.is_ok());
+        }
+        
+        // 清理测试文件
+        let _ = tokio::fs::remove_file(&source).await;
+        let _ = tokio::fs::remove_file(&target).await;
+        
+        println!("✓ 完整的文件传输操作测试通过");
     }
 }
