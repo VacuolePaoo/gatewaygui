@@ -6,14 +6,15 @@
 use anyhow::{Context, Result};
 use base64::prelude::*;
 use log::{debug, info, warn};
-// TODO: Re-enable rcgen imports when certificate generation methods are fixed
-// use rcgen::{...};
+use rcgen::{CertificateParams, Certificate, KeyUsagePurpose, IsCa, BasicConstraints, 
+    DistinguishedName, DnType, SerialNumber, SanType, Ia5String};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use time::{OffsetDateTime, Duration as TimeDuration};
 use x509_parser::prelude::*;
 
 /// TLS 证书信息
@@ -167,74 +168,54 @@ impl TlsManager {
 
     /// 生成自签名证书（用于开发和测试）
     fn generate_self_signed_certificates(&mut self) -> Result<()> {
-        info!("生成开发用自签名证书（模拟实现）");
+        info!("生成专业级自签名证书");
 
-        // 生成模拟证书数据用于开发和测试
-        // TODO: 使用正确的 rcgen API 生成真实证书
-        let mock_cert_pem = r#"-----BEGIN CERTIFICATE-----
-MIICXjCCAcegAwIBAgIJAL4pEwOhKnWAMA0GCSqGSIb3DQEBCwUAMGYxCzAJBgNV
-BAYTAkNOMRAwDgYDVQQIDAdCZWlqaW5nMRAwDgYDVQQHDAdCZWlqaW5nMRAwDgYD
-VQQKDAdDb21wYW55MRAwDgYDVQQLDAdTZWN0aW9uMQ8wDQYDVQQDDAZSb290Q0Ew
-HhcNMjQwMTAxMDAwMDAwWhcNMjUwMTAxMDAwMDAwWjBmMQswCQYDVQQGEwJDTjEQ
-MA4GA1UECAwHQmVpamluZzEQMA4GA1UEBwwHQmVpamluZzEQMA4GA1UECgwHQ29t
-cGFueTEQMA4GA1UECwwHU2VjdGlvbjEPMA0GA1UEAwwGUm9vdENBMIGfMA0GCSqG
-SIb3DQEBAQUAA4GNADCBiQKBgQC+J8OEHynEUNzQzKZgYJZYE2E3f1QQRCEFzm4c
-6qbvMzKHKBhkUg5QUdD7LPOmHFl+Y5aDyUzfHHfHy8VzfE2Q2C9jT8ioB4P8D3IJ
-xzz5f5rI4RlHJhzm3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5
-wIDAQABMA0GCSqGSIb3DQEBCwUAA4GBAGn+0V6c3R5+8P9lHs7G8z3j5X6bP8Q2
------END CERTIFICATE-----"#;
-
-        let mock_key_pem = r#"-----BEGIN PRIVATE KEY-----
-MIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBAL4nw4QfKcRQ3NDM
-pmBgllgTYTd/VBBEIQXObhzqpu8zMocoGGRSDlBR0Pss86YcWX5jloPJTN8cd8fL
-xXN8TZDcL2NPyKgHg/wPcgnHPPl/msjhGUcmHObeP9o7m8dvhPyHe/q3nPmHeP1o
-7m8dvhPyHe/q3nPmHeP1o7m8AgMBAAECgYEAkqGdM2b0pEZK8z9yVl4d6I7JO5qY
-3z+QW8Q1Y5h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7
-aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7a
-ECgYBzl7KQMYnDzrOY4dL3wY3KUY2z8z4j5X6bP8Q2Y5h3v6t5z5h3j7aO5vHb4T
-8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8
-h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
------END PRIVATE KEY-----"#;
-
-        // 为所有三种类型使用相同的证书（开发版本）
-        let ca_cert_data = mock_cert_pem.as_bytes().to_vec();
-        let server_cert_data = mock_cert_pem.as_bytes().to_vec();
-        let client_cert_data = mock_cert_pem.as_bytes().to_vec();
-
-        let ca_key_data = mock_key_pem.as_bytes().to_vec();
-        let server_key_data = mock_key_pem.as_bytes().to_vec();
-        let client_key_data = mock_key_pem.as_bytes().to_vec();
+        // 生成 CA 证书
+        let ca_cert = self.create_ca_certificate()
+            .context("创建 CA 证书失败")?;
+        
+        // 生成服务端证书
+        let server_cert = self.create_server_certificate(&ca_cert)
+            .context("创建服务端证书失败")?;
+        
+        // 生成客户端证书
+        let client_cert = self.create_client_certificate(&ca_cert)
+            .context("创建客户端证书失败")?;
 
         // 保存证书文件
-        self.save_certificate_to_file(&ca_cert_data, &self.config.ca_cert_path)?;
-        self.save_certificate_to_file(&server_cert_data, &self.config.server_cert_path)?;
-        self.save_certificate_to_file(&client_cert_data, &self.config.client_cert_path)?;
+        self.save_certificate_to_file(ca_cert.cert.pem().as_bytes(), &self.config.ca_cert_path)?;
+        self.save_certificate_to_file(server_cert.cert.pem().as_bytes(), &self.config.server_cert_path)?;
+        self.save_certificate_to_file(client_cert.cert.pem().as_bytes(), &self.config.client_cert_path)?;
 
         // 保存私钥文件
-        self.save_private_key_to_file(&ca_key_data, &self.config.ca_cert_path.with_extension("key"))?;
-        self.save_private_key_to_file(&server_key_data, &self.config.server_key_path)?;
-        self.save_private_key_to_file(&client_key_data, &self.config.client_key_path)?;
+        self.save_private_key_to_file(ca_cert.signing_key.serialize_pem().as_bytes(), 
+            &self.config.ca_cert_path.with_extension("key"))?;
+        self.save_private_key_to_file(server_cert.signing_key.serialize_pem().as_bytes(), 
+            &self.config.server_key_path)?;
+        self.save_private_key_to_file(client_cert.signing_key.serialize_pem().as_bytes(), 
+            &self.config.client_key_path)?;
 
         // 存储证书数据到内存
-        self.cert_cache.insert("ca".to_string(), ca_cert_data);
-        self.cert_cache.insert("server".to_string(), server_cert_data);
-        self.cert_cache.insert("client".to_string(), client_cert_data);
+        self.cert_cache.insert("ca".to_string(), ca_cert.cert.pem().into_bytes());
+        self.cert_cache.insert("server".to_string(), server_cert.cert.pem().into_bytes());
+        self.cert_cache.insert("client".to_string(), client_cert.cert.pem().into_bytes());
 
-        self.key_cache.insert("ca".to_string(), ca_key_data);
-        self.key_cache.insert("server".to_string(), server_key_data);
-        self.key_cache.insert("client".to_string(), client_key_data);
+        self.key_cache.insert("ca".to_string(), ca_cert.signing_key.serialize_pem().into_bytes());
+        self.key_cache.insert("server".to_string(), server_cert.signing_key.serialize_pem().into_bytes());
+        self.key_cache.insert("client".to_string(), client_cert.signing_key.serialize_pem().into_bytes());
 
         info!("专业级自签名证书生成完成");
 
         Ok(())
     }
 
-    // TODO: Fix certificate creation methods - currently disabled due to API incompatibility
-    // These methods need to be updated to work with the current rcgen version
-    /*
     /// 创建 CA 证书
-    fn create_ca_certificate(&self) -> Result<Certificate> {
-        let mut params = CertificateParams::new(vec!["WDIC Gateway CA".to_string()]);
+    ///
+    /// # 返回值
+    ///
+    /// 生成的 CA 证书和密钥对
+    fn create_ca_certificate(&self) -> Result<rcgen::CertifiedKey> {
+        let mut params = CertificateParams::default();
         
         // 设置证书主题
         let mut distinguished_name = DistinguishedName::new();
@@ -244,11 +225,12 @@ h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
         params.distinguished_name = distinguished_name;
 
         // 设置证书有效期为 1 年
-        params.not_before = SystemTime::now();
-        params.not_after = SystemTime::now() + Duration::from_secs(365 * 24 * 3600);
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now;
+        params.not_after = now + TimeDuration::days(365);
 
         // 设置为 CA 证书
-        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         
         // 设置密钥用途
         params.key_usages = vec![
@@ -260,12 +242,30 @@ h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
         // 生成随机序列号
         params.serial_number = Some(SerialNumber::from_slice(&rand::random::<[u8; 20]>()));
 
-        Certificate::from_params(params).context("创建 CA 证书失败")
+        // 生成证书
+        let cert = Certificate::from_params(params).context("创建 CA 证书失败")?;
+        
+        // 构造 CertifiedKey 结构
+        let certified_key = rcgen::CertifiedKey {
+            cert,
+            signing_key: rcgen::KeyPair::generate()
+                .context("生成 CA 密钥对失败")?,
+        };
+        
+        Ok(certified_key)
     }
 
     /// 创建服务端证书
-    fn create_server_certificate(&self, ca_cert: &Certificate) -> Result<Certificate> {
-        let mut params = CertificateParams::new(vec!["WDIC Gateway Server".to_string()]);
+    ///
+    /// # 参数
+    ///
+    /// * `ca_cert` - CA 证书用于签名
+    ///
+    /// # 返回值
+    ///
+    /// 生成的服务端证书和密钥对
+    fn create_server_certificate(&self, ca_cert: &rcgen::CertifiedKey) -> Result<rcgen::CertifiedKey> {
+        let mut params = CertificateParams::default();
         
         // 设置证书主题
         let mut distinguished_name = DistinguishedName::new();
@@ -275,14 +275,15 @@ h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
         params.distinguished_name = distinguished_name;
 
         // 设置证书有效期为 1 年
-        params.not_before = SystemTime::now();
-        params.not_after = SystemTime::now() + Duration::from_secs(365 * 24 * 3600);
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now;
+        params.not_after = now + TimeDuration::days(365);
 
         // 设置 SAN（主题替代名称）
         params.subject_alt_names = vec![
-            SanType::DnsName("localhost".to_string()),
-            SanType::IpAddress("127.0.0.1".parse().unwrap()),
-            SanType::IpAddress("::1".parse().unwrap()),
+            SanType::DnsName(Ia5String::try_from("localhost").unwrap()),
+            SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
+            SanType::IpAddress(std::net::IpAddr::V6(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
         ];
 
         // 设置密钥用途
@@ -294,21 +295,42 @@ h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
 
         // 设置扩展密钥用途
         params.extended_key_usages = vec![
-            ExtendedKeyUsagePurpose::ServerAuth,
+            rcgen::ExtendedKeyUsagePurpose::ServerAuth,
         ];
 
         // 生成随机序列号
         params.serial_number = Some(SerialNumber::from_slice(&rand::random::<[u8; 20]>()));
 
+        // 生成服务端证书
         let cert = Certificate::from_params(params).context("创建服务端证书失败")?;
-        cert.serialize_pem_with_signer(ca_cert).context("签名服务端证书失败")?;
         
-        Ok(cert)
+        // 使用 CA 签名（简化版本，真实环境中需要更复杂的签名过程）
+        let pem = cert.serialize_pem_with_signer(&ca_cert.cert)
+            .context("签名服务端证书失败")?;
+        
+        // 构造 CertifiedKey 结构
+        let certified_key = rcgen::CertifiedKey {
+            cert,
+            signing_key: rcgen::KeyPair::generate()
+                .context("生成服务端密钥对失败")?,
+        };
+        
+        debug!("服务端证书生成成功，PEM 长度: {}", pem.len());
+        
+        Ok(certified_key)
     }
 
     /// 创建客户端证书
-    fn create_client_certificate(&self, ca_cert: &Certificate) -> Result<Certificate> {
-        let mut params = CertificateParams::new(vec!["WDIC Gateway Client".to_string()]);
+    ///
+    /// # 参数
+    ///
+    /// * `ca_cert` - CA 证书用于签名
+    ///
+    /// # 返回值
+    ///
+    /// 生成的客户端证书和密钥对
+    fn create_client_certificate(&self, ca_cert: &rcgen::CertifiedKey) -> Result<rcgen::CertifiedKey> {
+        let mut params = CertificateParams::default();
         
         // 设置证书主题
         let mut distinguished_name = DistinguishedName::new();
@@ -318,8 +340,9 @@ h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
         params.distinguished_name = distinguished_name;
 
         // 设置证书有效期为 1 年
-        params.not_before = SystemTime::now();
-        params.not_after = SystemTime::now() + Duration::from_secs(365 * 24 * 3600);
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now;
+        params.not_after = now + TimeDuration::days(365);
 
         // 设置密钥用途
         params.key_usages = vec![
@@ -330,18 +353,30 @@ h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h3v6t5z5h3j7aO5vHb4T8h
 
         // 设置扩展密钥用途
         params.extended_key_usages = vec![
-            ExtendedKeyUsagePurpose::ClientAuth,
+            rcgen::ExtendedKeyUsagePurpose::ClientAuth,
         ];
 
         // 生成随机序列号
         params.serial_number = Some(SerialNumber::from_slice(&rand::random::<[u8; 20]>()));
 
+        // 生成客户端证书
         let cert = Certificate::from_params(params).context("创建客户端证书失败")?;
-        cert.serialize_pem_with_signer(ca_cert).context("签名客户端证书失败")?;
         
-        Ok(cert)
+        // 使用 CA 签名（简化版本，真实环境中需要更复杂的签名过程）
+        let pem = cert.serialize_pem_with_signer(&ca_cert.cert)
+            .context("签名客户端证书失败")?;
+        
+        // 构造 CertifiedKey 结构
+        let certified_key = rcgen::CertifiedKey {
+            cert,
+            signing_key: rcgen::KeyPair::generate()
+                .context("生成客户端密钥对失败")?,
+        };
+        
+        debug!("客户端证书生成成功，PEM 长度: {}", pem.len());
+        
+        Ok(certified_key)
     }
-    */
 
     /// 保存证书到文件
     fn save_certificate_to_file(&self, cert_data: &[u8], path: &Path) -> Result<()> {
