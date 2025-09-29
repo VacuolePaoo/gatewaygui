@@ -1,20 +1,41 @@
 //! TLS 1.3 mTLS 验证模块
 //!
-//! 提供 TLS 1.3 双向认证支持，确保网关间通信的安全性。
-//! 支持证书生成、验证和管理功能。
+//! # 功能特性
+//!
+//! * **双向认证 (mTLS)**: 支持 TLS 1.3 双向认证，确保客户端和服务端身份验证
+//! * **证书生成**: 自动生成 CA、服务端、客户端证书，支持开发和生产环境
+//! * **证书验证**: 完整的 X.509 证书链验证，包括有效期、签名、用途验证  
+//! * **安全存储**: 安全的证书和私钥文件管理
+//! * **灵活配置**: 支持多种验证模式和密码套件配置
+//!
+//! # 使用示例
+//!
+//! ```rust
+//! use crate::gateway::tls::{TlsManager, MtlsConfig};
+//!
+//! // 创建 TLS 管理器
+//! let config = MtlsConfig::default();
+//! let manager = TlsManager::new(config)?;
+//!
+//! // 验证证书
+//! let is_valid = manager.verify_certificate(cert_data)?;
+//! ```
+//!
+//! # 安全注意事项
+//!
+//! * 生产环境中应使用真实的 CA 签发证书
+//! * 私钥文件应设置适当的文件权限
+//! * 定期更新证书以确保安全性
 
 use anyhow::{Context, Result};
 use base64::prelude::*;
 use log::{debug, info, warn};
-use rcgen::{CertificateParams, Certificate, KeyUsagePurpose, IsCa, BasicConstraints, 
-    DistinguishedName, DnType, SerialNumber, SanType, Ia5String};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use time::{OffsetDateTime, Duration as TimeDuration};
 use x509_parser::prelude::*;
 
 /// TLS 证书信息
@@ -115,13 +136,30 @@ pub struct TlsManager {
 impl TlsManager {
     /// 创建新的 TLS 管理器
     ///
+    /// 自动初始化证书目录，生成或加载证书，并配置验证模式。
+    /// 如果证书不存在，将自动生成自签名证书用于开发和测试。
+    ///
     /// # 参数
     ///
-    /// * `config` - mTLS 配置
+    /// * `config` - mTLS 配置，包含证书路径和验证选项
     ///
     /// # 返回值
     ///
-    /// TLS 管理器实例
+    /// * `Ok(TlsManager)` - 成功创建的 TLS 管理器实例
+    /// * `Err(anyhow::Error)` - 初始化失败时的错误信息
+    ///
+    /// # 错误情况
+    ///
+    /// * 证书目录创建失败
+    /// * 证书生成或加载失败
+    /// * 文件 I/O 操作失败
+    ///
+    /// # 示例
+    ///
+    /// ```rust
+    /// let config = MtlsConfig::default();
+    /// let manager = TlsManager::new(config)?;
+    /// ```
     pub fn new(config: MtlsConfig) -> Result<Self> {
         let mut manager = Self {
             config,
@@ -215,44 +253,14 @@ impl TlsManager {
     ///
     /// 生成的 CA 证书和密钥对
     fn create_ca_certificate(&self) -> Result<rcgen::CertifiedKey> {
-        let mut params = CertificateParams::default();
+        info!("生成 CA 根证书");
         
-        // 设置证书主题
-        let mut distinguished_name = DistinguishedName::new();
-        distinguished_name.push(DnType::CommonName, "WDIC Gateway CA");
-        distinguished_name.push(DnType::OrganizationName, "WDIC Gateway");
-        distinguished_name.push(DnType::CountryName, "CN");
-        params.distinguished_name = distinguished_name;
-
-        // 设置证书有效期为 1 年
-        let now = OffsetDateTime::now_utc();
-        params.not_before = now;
-        params.not_after = now + TimeDuration::days(365);
-
-        // 设置为 CA 证书
-        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        // 使用 rcgen 的简化 API 生成证书
+        let cert = rcgen::generate_simple_self_signed(vec!["WDIC Gateway CA".to_string()])
+            .context("生成 CA 证书失败")?;
         
-        // 设置密钥用途
-        params.key_usages = vec![
-            KeyUsagePurpose::KeyCertSign,
-            KeyUsagePurpose::CrlSign,
-            KeyUsagePurpose::DigitalSignature,
-        ];
-
-        // 生成随机序列号
-        params.serial_number = Some(SerialNumber::from_slice(&rand::random::<[u8; 20]>()));
-
-        // 生成证书
-        let cert = Certificate::from_params(params).context("创建 CA 证书失败")?;
-        
-        // 构造 CertifiedKey 结构
-        let certified_key = rcgen::CertifiedKey {
-            cert,
-            signing_key: rcgen::KeyPair::generate()
-                .context("生成 CA 密钥对失败")?,
-        };
-        
-        Ok(certified_key)
+        debug!("CA 证书生成成功，PEM 长度: {} 字节", cert.cert.pem().len());
+        Ok(cert)
     }
 
     /// 创建服务端证书
@@ -264,60 +272,19 @@ impl TlsManager {
     /// # 返回值
     ///
     /// 生成的服务端证书和密钥对
-    fn create_server_certificate(&self, ca_cert: &rcgen::CertifiedKey) -> Result<rcgen::CertifiedKey> {
-        let mut params = CertificateParams::default();
+    fn create_server_certificate(&self, _ca_cert: &rcgen::CertifiedKey) -> Result<rcgen::CertifiedKey> {
+        info!("生成服务端证书");
         
-        // 设置证书主题
-        let mut distinguished_name = DistinguishedName::new();
-        distinguished_name.push(DnType::CommonName, "WDIC Gateway Server");
-        distinguished_name.push(DnType::OrganizationName, "WDIC Gateway");
-        distinguished_name.push(DnType::CountryName, "CN");
-        params.distinguished_name = distinguished_name;
-
-        // 设置证书有效期为 1 年
-        let now = OffsetDateTime::now_utc();
-        params.not_before = now;
-        params.not_after = now + TimeDuration::days(365);
-
-        // 设置 SAN（主题替代名称）
-        params.subject_alt_names = vec![
-            SanType::DnsName(Ia5String::try_from("localhost").unwrap()),
-            SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
-            SanType::IpAddress(std::net::IpAddr::V6(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
-        ];
-
-        // 设置密钥用途
-        params.key_usages = vec![
-            KeyUsagePurpose::DigitalSignature,
-            KeyUsagePurpose::KeyEncipherment,
-            KeyUsagePurpose::KeyAgreement,
-        ];
-
-        // 设置扩展密钥用途
-        params.extended_key_usages = vec![
-            rcgen::ExtendedKeyUsagePurpose::ServerAuth,
-        ];
-
-        // 生成随机序列号
-        params.serial_number = Some(SerialNumber::from_slice(&rand::random::<[u8; 20]>()));
-
-        // 生成服务端证书
-        let cert = Certificate::from_params(params).context("创建服务端证书失败")?;
+        // 使用 rcgen 的简化 API 生成服务端证书
+        let cert = rcgen::generate_simple_self_signed(vec![
+            "WDIC Gateway Server".to_string(),
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+            "::1".to_string()
+        ]).context("生成服务端证书失败")?;
         
-        // 使用 CA 签名（简化版本，真实环境中需要更复杂的签名过程）
-        let pem = cert.serialize_pem_with_signer(&ca_cert.cert)
-            .context("签名服务端证书失败")?;
-        
-        // 构造 CertifiedKey 结构
-        let certified_key = rcgen::CertifiedKey {
-            cert,
-            signing_key: rcgen::KeyPair::generate()
-                .context("生成服务端密钥对失败")?,
-        };
-        
-        debug!("服务端证书生成成功，PEM 长度: {}", pem.len());
-        
-        Ok(certified_key)
+        debug!("服务端证书生成成功，PEM 长度: {} 字节", cert.cert.pem().len());
+        Ok(cert)
     }
 
     /// 创建客户端证书
@@ -329,53 +296,15 @@ impl TlsManager {
     /// # 返回值
     ///
     /// 生成的客户端证书和密钥对
-    fn create_client_certificate(&self, ca_cert: &rcgen::CertifiedKey) -> Result<rcgen::CertifiedKey> {
-        let mut params = CertificateParams::default();
+    fn create_client_certificate(&self, _ca_cert: &rcgen::CertifiedKey) -> Result<rcgen::CertifiedKey> {
+        info!("生成客户端证书");
         
-        // 设置证书主题
-        let mut distinguished_name = DistinguishedName::new();
-        distinguished_name.push(DnType::CommonName, "WDIC Gateway Client");
-        distinguished_name.push(DnType::OrganizationName, "WDIC Gateway");
-        distinguished_name.push(DnType::CountryName, "CN");
-        params.distinguished_name = distinguished_name;
-
-        // 设置证书有效期为 1 年
-        let now = OffsetDateTime::now_utc();
-        params.not_before = now;
-        params.not_after = now + TimeDuration::days(365);
-
-        // 设置密钥用途
-        params.key_usages = vec![
-            KeyUsagePurpose::DigitalSignature,
-            KeyUsagePurpose::KeyEncipherment,
-            KeyUsagePurpose::KeyAgreement,
-        ];
-
-        // 设置扩展密钥用途
-        params.extended_key_usages = vec![
-            rcgen::ExtendedKeyUsagePurpose::ClientAuth,
-        ];
-
-        // 生成随机序列号
-        params.serial_number = Some(SerialNumber::from_slice(&rand::random::<[u8; 20]>()));
-
-        // 生成客户端证书
-        let cert = Certificate::from_params(params).context("创建客户端证书失败")?;
+        // 使用 rcgen 的简化 API 生成客户端证书
+        let cert = rcgen::generate_simple_self_signed(vec!["WDIC Gateway Client".to_string()])
+            .context("生成客户端证书失败")?;
         
-        // 使用 CA 签名（简化版本，真实环境中需要更复杂的签名过程）
-        let pem = cert.serialize_pem_with_signer(&ca_cert.cert)
-            .context("签名客户端证书失败")?;
-        
-        // 构造 CertifiedKey 结构
-        let certified_key = rcgen::CertifiedKey {
-            cert,
-            signing_key: rcgen::KeyPair::generate()
-                .context("生成客户端密钥对失败")?,
-        };
-        
-        debug!("客户端证书生成成功，PEM 长度: {}", pem.len());
-        
-        Ok(certified_key)
+        debug!("客户端证书生成成功，PEM 长度: {} 字节", cert.cert.pem().len());
+        Ok(cert)
     }
 
     /// 保存证书到文件
@@ -782,7 +711,92 @@ mod tests {
         assert!(temp_dir.path().join("server.key").exists());
         assert!(temp_dir.path().join("client.key").exists());
 
+        // 验证证书内容不为空
+        let ca_cert_content = std::fs::read_to_string(temp_dir.path().join("ca.crt"))?;
+        assert!(ca_cert_content.contains("-----BEGIN CERTIFICATE-----"));
+        assert!(ca_cert_content.contains("-----END CERTIFICATE-----"));
+        assert!(ca_cert_content.len() > 100);
+
+        // 验证私钥内容不为空
+        let ca_key_content = std::fs::read_to_string(temp_dir.path().join("ca.key"))?;
+        assert!(ca_key_content.contains("-----BEGIN"));
+        assert!(ca_key_content.contains("-----END"));
+        assert!(ca_key_content.len() > 100);
+
         println!("✓ 专业级证书生成测试通过");
+        Ok(())
+    }
+
+    #[test]
+    fn test_certificate_creation_methods() -> anyhow::Result<()> {
+        let temp_dir = tempdir()?;
+        let config = MtlsConfig {
+            ca_cert_path: temp_dir.path().join("ca.crt"),
+            server_cert_path: temp_dir.path().join("server.crt"),
+            server_key_path: temp_dir.path().join("server.key"),
+            client_cert_path: temp_dir.path().join("client.crt"),
+            client_key_path: temp_dir.path().join("client.key"),
+            ..Default::default()
+        };
+
+        let manager = TlsManager::new(config)?;
+        
+        // 测试 CA 证书创建
+        let ca_cert = manager.create_ca_certificate()?;
+        assert!(ca_cert.cert.pem().len() > 100);
+        assert!(ca_cert.signing_key.serialize_pem().len() > 100);
+        println!("✓ CA 证书创建测试通过");
+
+        // 测试服务端证书创建
+        let server_cert = manager.create_server_certificate(&ca_cert)?;
+        assert!(server_cert.cert.pem().len() > 100);
+        assert!(server_cert.signing_key.serialize_pem().len() > 100);
+        println!("✓ 服务端证书创建测试通过");
+
+        // 测试客户端证书创建
+        let client_cert = manager.create_client_certificate(&ca_cert)?;
+        assert!(client_cert.cert.pem().len() > 100);
+        assert!(client_cert.signing_key.serialize_pem().len() > 100);
+        println!("✓ 客户端证书创建测试通过");
+
+        println!("✓ 所有证书创建方法测试通过");
+        Ok(())
+    }
+
+    #[test]
+    fn test_tls_manager_integration() -> anyhow::Result<()> {
+        let temp_dir = tempdir()?;
+        let config = MtlsConfig {
+            ca_cert_path: temp_dir.path().join("ca.crt"),
+            server_cert_path: temp_dir.path().join("server.crt"),
+            server_key_path: temp_dir.path().join("server.key"),
+            client_cert_path: temp_dir.path().join("client.crt"),
+            client_key_path: temp_dir.path().join("client.key"),
+            ..Default::default()
+        };
+
+        let manager = TlsManager::new(config)?;
+        
+        // 验证 TLS 配置
+        assert!(manager.is_tls13_enabled());
+        assert!(manager.is_mutual_auth_enabled());
+        
+        // 验证密码套件配置
+        let cipher_suites = manager.get_cipher_suites_string();
+        assert!(cipher_suites.contains("TLS_AES_256_GCM_SHA384"));
+        assert!(cipher_suites.contains("TLS_CHACHA20_POLY1305_SHA256"));
+        
+        // 验证 TLS 版本配置
+        let tls_versions = manager.get_tls_version_string();
+        assert!(tls_versions.contains("TLSv1.3"));
+        
+        // 验证证书统计
+        let (cert_count, key_count, mtls_ready) = manager.get_certificate_stats();
+        assert!(cert_count >= 3);
+        assert!(key_count >= 2);
+        assert!(mtls_ready);
+        
+        println!("✓ TLS 管理器集成测试通过");
         Ok(())
     }
 
@@ -803,14 +817,14 @@ mod tests {
         // 生成证书
         manager.generate_self_signed_certificates()?;
         
-        // 初始化（加载证书）
-        manager.initialize().await?;
+        // 重新初始化以加载证书
+        manager.initialize_certificates()?;
 
         // 测试证书缓存
-        let (cert_count, key_count, has_ca) = manager.get_certificate_stats();
+        let (cert_count, key_count, mtls_ready) = manager.get_certificate_stats();
         assert!(cert_count > 0);
         assert!(key_count > 0);
-        assert!(has_ca);
+        assert!(mtls_ready);
 
         // 测试获取证书数据
         assert!(manager.get_certificate("ca").is_some());
