@@ -100,6 +100,44 @@ impl SearchToken {
             }
         })
     }
+
+    /// 复杂的 glob 模式匹配（多个通配符）
+    fn complex_glob_match(&self, path: &str, parts: &[&str]) -> bool {
+        if parts.is_empty() {
+            return true;
+        }
+        
+        let mut path_rest = path;
+        
+        // 检查第一个部分（前缀）
+        if !parts[0].is_empty() {
+            if !path_rest.starts_with(parts[0]) {
+                return false;
+            }
+            path_rest = &path_rest[parts[0].len()..];
+        }
+        
+        // 检查中间部分
+        for &part in &parts[1..parts.len()-1] {
+            if part.is_empty() {
+                continue;
+            }
+            if let Some(pos) = path_rest.find(part) {
+                path_rest = &path_rest[pos + part.len()..];
+            } else {
+                return false;
+            }
+        }
+        
+        // 检查最后一个部分（后缀）
+        if let Some(last_part) = parts.last() {
+            if !last_part.is_empty() {
+                return path_rest.ends_with(last_part);
+            }
+        }
+        
+        true
+    }
 }
 
 /// 文件授权信息
